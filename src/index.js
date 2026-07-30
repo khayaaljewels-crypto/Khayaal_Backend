@@ -50,10 +50,28 @@ const app = express();
 ------------------------------------------ */
 
 const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
+  "http://localhost:5173",
+  "http://localhost:5174",
   process.env.FRONTEND_URL,
+  process.env.FRONTEND_URL_HTTP,
 ].filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.log("Blocked Origin:", origin);
+
+      return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  })
+);
 
 app.use(
   cors({

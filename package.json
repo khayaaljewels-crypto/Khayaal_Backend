@@ -1,28 +1,28 @@
-{
-  "name": "khayaal-server",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "predev": "kill-port 4000",
-    "dev": "nodemon src/index.js",
-    "start": "node src/index.js",
-    "migrate": "node src/db/migrate.js"
-  },
-  "dependencies": {
-    "cookie-parser": "^1.4.7",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.21.2",
-    "jsonwebtoken": "^9.0.2",
-    "multer": "^2.2.0",
-    "passport": "^0.7.0",
-    "passport-google-oauth20": "^2.0.0",
-    "pg": "^8.13.1",
-    "sharp": "^0.35.3"
-  },
-  "devDependencies": {
-    "kill-port": "^2.0.1",
-    "nodemon": "^3.1.14"
+  {
+    "name": "khayaal-server",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "scripts": {
+      "predev": "kill-port 4000",
+      "dev": "nodemon src/index.js",
+      "start": "node src/index.js",
+      "migrate": "node src/db/migrate.js"
+    },
+    "dependencies": {
+      "cookie-parser": "^1.4.7",
+      "cors": "^2.8.5",
+      "dotenv": "^16.4.5",
+      "express": "^4.21.2",
+      "jsonwebtoken": "^9.0.2",
+      "multer": "^2.2.0",
+      "passport": "^0.7.0",
+      "passport-google-oauth20": "^2.0.0",
+      "pg": "^8.13.1",
+      "sharp": "^0.35.3"
+    },
+    "devDependencies": {
+      "kill-port": "^2.0.1",
+      "nodemon": "^3.1.14"
+    }
   }
-}
