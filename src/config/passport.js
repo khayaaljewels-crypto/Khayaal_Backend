@@ -25,18 +25,36 @@ if (isGoogleAuthConfigured) {
         callbackURL: process.env.GOOGLE_CALLBACK_URL,
       },
       async (_accessToken, _refreshToken, profile, done) => {
+        const email = profile.emails?.[0]?.value;
+        if (!email) return done(new Error('Google account has no email'));
+
+        const fullName = profile.displayName ?? 'Khayaal Customer';
+        const profileImage = profile.photos?.[0]?.value ?? null;
+        const googleId = profile.id;
+
+        // Each DB step is wrapped separately so a failure is attributed to
+        // the exact query that caused it (matches the error-logging
+        // requirement: which SQL, not just "something in passport failed").
+        // A connection-level failure (DB unreachable, not a real SQL error)
+        // gets `err.status = 503` so the client sees "Service Unavailable"
+        // instead of a generic 500 — the OAuth flow does not continue
+        // without the database; there is no guest/fallback identity to fall
+        // back to for a signed-in customer account.
+        let existing;
         try {
-          const email = profile.emails?.[0]?.value;
-          if (!email) return done(new Error('Google account has no email'));
-
-          const fullName = profile.displayName ?? 'Khayaal Customer';
-          const profileImage = profile.photos?.[0]?.value ?? null;
-          const googleId = profile.id;
-
           // Email is the unique identifier per spec — look up by email first.
-          const existing = await pool.query('SELECT * FROM customers WHERE email = $1', [email]);
+          existing = await pool.query('SELECT * FROM customers WHERE email = $1', [email]);
+        } catch (err) {
+          console.error(`[auth] Google OAuth: customer lookup failed for email=${email}`);
+          console.error('[auth] SQL: SELECT * FROM customers WHERE email = $1', [email]);
+          console.error('[auth] Error:', err.message || err.code, err.stack);
+          err.status = 503;
+          err.message = `Database unavailable during Google login (customer lookup): ${err.message || err.code || 'connection failed'}`;
+          return done(err);
+        }
 
-          let customer;
+        let customer;
+        try {
           if (existing.rows.length > 0) {
             const updated = await pool.query(
               `UPDATE customers
@@ -55,15 +73,20 @@ if (isGoogleAuthConfigured) {
             );
             customer = inserted.rows[0];
           }
-
-          if (customer.status === 'disabled') {
-            return done(null, false, { message: 'This account has been disabled.' });
-          }
-
-          return done(null, customer);
         } catch (err) {
+          const stage = existing.rows.length > 0 ? 'UPDATE customers' : 'INSERT INTO customers';
+          console.error(`[auth] Google OAuth: ${stage} failed for email=${email}`);
+          console.error('[auth] Error:', err.message || err.code, err.stack);
+          err.status = err.status || (err.code?.startsWith?.('E') ? 503 : 500);
+          err.message = `Database error during Google login (${stage}): ${err.message || err.code || 'unknown error'}`;
           return done(err);
         }
+
+        if (customer.status === 'disabled') {
+          return done(null, false, { message: 'This account has been disabled.' });
+        }
+
+        return done(null, customer);
       }
     )
   );

@@ -91,3 +91,30 @@ CREATE TABLE IF NOT EXISTS order_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
+
+-- Design note: products themselves are not stored in Postgres — the
+-- catalogue lives client-side in ProductsContext/localStorage so the admin
+-- panel can stay a pure frontend app (see PROJECT_DOCUMENTATION). product_id
+-- here is a loose reference to that client-side id (e.g. "kj-abc123"), the
+-- same pattern already used by order_items.product_id above — there is no
+-- products table to foreign-key against.
+--
+-- (A prior migration attempt briefly added `products`/`categories`/
+-- `collections`/`occasions`/`banners` tables and an ALTER upgrading this
+-- column to an integer FK. That migration never actually ran against the
+-- live database — a `pg`/Neon connection-string incompatibility
+-- (`channel_binding=require`, see server/.env) made every DB call hang
+-- until it timed out, well before any SQL executed. It was removed here
+-- rather than left in place, since the moment that connection bug was
+-- fixed, the next `npm run migrate` would have silently applied it and
+-- broken the current, working, localStorage-based catalogue.)
+CREATE TABLE IF NOT EXISTS product_images (
+  id SERIAL PRIMARY KEY,
+  product_id VARCHAR(50) NOT NULL,
+  image_path TEXT NOT NULL, -- relative path, e.g. /uploads/products/polki-sets/product_1724689123.webp
+  is_thumbnail BOOLEAN NOT NULL DEFAULT false,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_images_product_id ON product_images(product_id);

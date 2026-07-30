@@ -1,3 +1,13 @@
 node_modules
 .env
 .env.local
+uploads/products/**
+!uploads/products/.gitkeep
+uploads/categories/**
+!uploads/categories/.gitkeep
+uploads/collections/**
+!uploads/collections/.gitkeep
+uploads/occasions/**
+!uploads/occasions/.gitkeep
+uploads/banners/**
+!uploads/banners/.gitkeep

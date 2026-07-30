@@ -9,7 +9,7 @@ async function migrate() {
   const sql = readFileSync(join(__dirname, 'schema.sql'), 'utf8');
   console.log('Running schema migration...');
   await pool.query(sql);
-  console.log('Migration complete: customers, addresses, orders, order_items are ready.');
+  console.log('Migration complete: customers, addresses, orders, order_items, product_images are ready.');
   await pool.end();
 }
 
