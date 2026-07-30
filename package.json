@@ -3,11 +3,12 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-"scripts": {
-  "predev": "kill-port 4000",
-  "dev": "nodemon src/index.js",
-  "migrate": "node src/db/migrate.js"
-},
+  "scripts": {
+    "predev": "kill-port 4000",
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js",
+    "migrate": "node src/db/migrate.js"
+  },
   "dependencies": {
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
