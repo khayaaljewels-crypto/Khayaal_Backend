@@ -2,16 +2,16 @@ import { Router } from 'express';
 import multer from 'multer';
 import { storage } from '../services/storage/index.js';
 import { processImage, generateFilename } from '../services/imageProcessor.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 
 // Generic single-image upload for entities that don't need a full gallery
-// (categories, collections, occasions, banners) — unlike products, these
-// don't have their own Postgres table today (they live in localStorage via
-// Context), so this route does no DB work at all: it just processes and
-// stores the file, and hands back a URL for the admin form to save wherever
-// that entity's data actually lives. No auth here either, matching the same
-// documented tradeoff already in productImages.js (admin SPA calls this
-// directly from browser JS; no Firebase Admin SDK verification configured).
+// (categories, collections, occasions, banners) — this route does no DB work
+// itself: it just processes and stores the file, and hands back a URL for
+// the caller to save onto whichever record that image belongs to (the
+// categories/collections admin routes do that save separately).
 const router = Router();
+
+router.use(requireAdmin);
 
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB

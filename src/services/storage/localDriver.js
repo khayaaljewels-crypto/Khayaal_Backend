@@ -20,6 +20,14 @@ async function save({ buffer, filename, entityType = 'products', folder }) {
   return `/uploads/${segments.join('/')}/${filename}`;
 }
 
+// Overwrites the file at an existing relativePath with new bytes, keeping
+// the same path/URL — used by the "replace image in place" route so callers
+// never need to know a driver's internal folder/filename structure.
+async function replace(relativePath, buffer) {
+  const filePath = path.join(UPLOADS_ROOT, relativePath.replace(/^\/uploads\//, ''));
+  await fs.writeFile(filePath, buffer);
+}
+
 async function remove(relativePath) {
   if (!relativePath?.startsWith('/uploads/')) return;
   const filePath = path.join(UPLOADS_ROOT, relativePath.replace(/^\/uploads\//, ''));
@@ -36,4 +44,4 @@ function getUrl(relativePath, { requestOrigin } = {}) {
   return `${base}${relativePath}`;
 }
 
-export const localDriver = { save, remove, getUrl };
+export const localDriver = { save, remove, getUrl, replace };

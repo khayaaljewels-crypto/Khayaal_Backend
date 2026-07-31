@@ -3,19 +3,16 @@ import multer from 'multer';
 import { pool } from '../db/pool.js';
 import { storage } from '../services/storage/index.js';
 import { processImage, generateFilename } from '../services/imageProcessor.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 
-// SECURITY NOTE (matches the gap already documented in adminCustomers.js):
-// the admin dashboard authenticates with Firebase client-side only — this
-// Express server has no way to verify a Firebase ID token yet (needs a
-// Firebase Admin SDK service-account key, not configured). Gating these
-// routes behind the ADMIN_API_KEY shared secret (like adminCustomers.js)
-// isn't an option here the way it is there: that route is never called from
-// the browser, but the admin SPA must call these upload/delete endpoints
-// directly from client JS, which would mean shipping the secret in the
-// frontend bundle — worse than no protection, since it's readable by anyone
-// and still looks locked down. Left open for now; production deployment
-// needs real Firebase Admin SDK verification here before going live.
 const router = Router();
+
+// Was previously wide open (no auth at all) — the admin dashboard calls
+// these directly from browser JS, so the old ADMIN_API_KEY shared-secret
+// approach (see adminCustomers.js) never worked here without shipping the
+// key in the frontend bundle. requireAdmin verifies the admin's real
+// Firebase ID token instead, sent as a normal Authorization header.
+router.use(requireAdmin);
 
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -217,14 +214,34 @@ router.put('/images/:id/replace', uploadSingleImage, asyncHandler('PUT /images/:
   const row = result.rows[0];
   if (!row) return res.status(404).json({ error: 'Image not found.' });
 
-  const folderMatch = row.image_path.match(/^\/uploads\/products\/([^/]+)\//);
-  const folder = folderMatch?.[1] ?? 'uncategorized';
-  const filename = row.image_path.split('/').pop();
-
   const optimized = await processImage(req.file.buffer);
-  await storage.save({ buffer: optimized, filename, folder });
+  await storage.replace(row.image_path, optimized);
 
   res.json({ image: serializeRow(row, req) });
+}));
+
+// Attach an already-uploaded image to a different product — no re-upload,
+// just a new product_images row pointing at the same image_path/public_id.
+// Used by the Media Library's "reuse for another product" feature.
+router.post('/images/:id/attach', asyncHandler('POST /images/:id/attach', async (req, res) => {
+  const { targetProductId } = req.body;
+  if (!targetProductId) return res.status(400).json({ error: 'targetProductId is required.' });
+
+  const source = await pool.query('SELECT * FROM product_images WHERE id = $1', [req.params.id]);
+  if (!source.rows[0]) return res.status(404).json({ error: 'Image not found.' });
+
+  const existingCount = await pool.query(
+    'SELECT COUNT(*)::int AS count FROM product_images WHERE product_id = $1',
+    [targetProductId]
+  );
+  const nextOrder = existingCount.rows[0].count;
+
+  const inserted = await pool.query(
+    `INSERT INTO product_images (product_id, image_path, is_thumbnail, display_order)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [targetProductId, source.rows[0].image_path, nextOrder === 0, nextOrder]
+  );
+  res.status(201).json({ image: serializeRow(inserted.rows[0], req) });
 }));
 
 // Delete an image entirely (file + row).

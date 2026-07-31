@@ -15,6 +15,11 @@ import orderRoutes from './routes/orders.js';
 import adminCustomerRoutes from './routes/adminCustomers.js';
 import productImageRoutes from './routes/productImages.js';
 import uploadRoutes from './routes/uploads.js';
+import productRoutes from './routes/products.js';
+import adminProductRoutes from './routes/adminProducts.js';
+import categoryRoutes, { adminCategoryRoutes } from './routes/categories.js';
+import collectionRoutes, { adminCollectionRoutes } from './routes/collections.js';
+import adminImportRoutes from './routes/adminImport.js';
 import { testConnection } from './db/pool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -155,6 +160,17 @@ app.use('/api/admin/customers', adminCustomerRoutes);
 app.use('/api/admin/uploads', uploadRoutes);
 
 app.use('/api/admin', productImageRoutes);
+
+app.use('/api/admin/products', adminProductRoutes);
+app.use('/api/admin/categories', adminCategoryRoutes);
+app.use('/api/admin/collections', adminCollectionRoutes);
+app.use('/api/admin/import', adminImportRoutes);
+
+// Public catalog — no auth, top-level like /auth and /health (distinct from
+// the /api namespace below, which is customer-account-authenticated).
+app.use('/products', productRoutes);
+app.use('/categories', categoryRoutes);
+app.use('/collections', collectionRoutes);
 
 app.use('/api', customerRoutes);
 

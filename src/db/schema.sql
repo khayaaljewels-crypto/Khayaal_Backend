@@ -92,29 +92,112 @@ CREATE TABLE IF NOT EXISTS order_items (
 
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 
--- Design note: products themselves are not stored in Postgres — the
--- catalogue lives client-side in ProductsContext/localStorage so the admin
--- panel can stay a pure frontend app (see PROJECT_DOCUMENTATION). product_id
--- here is a loose reference to that client-side id (e.g. "kj-abc123"), the
--- same pattern already used by order_items.product_id above — there is no
--- products table to foreign-key against.
+-- Design note: products/categories/collections used to live only in the
+-- browser (ProductsContext/CategoriesContext/CollectionsContext +
+-- localStorage), with product_id columns below as a loose string reference
+-- (e.g. "kj-abc123") to that client-side id and no products table to
+-- foreign-key against.
 --
--- (A prior migration attempt briefly added `products`/`categories`/
--- `collections`/`occasions`/`banners` tables and an ALTER upgrading this
--- column to an integer FK. That migration never actually ran against the
--- live database — a `pg`/Neon connection-string incompatibility
--- (`channel_binding=require`, see server/.env) made every DB call hang
--- until it timed out, well before any SQL executed. It was removed here
--- rather than left in place, since the moment that connection bug was
--- fixed, the next `npm run migrate` would have silently applied it and
--- broken the current, working, localStorage-based catalogue.)
+-- (An earlier attempt at this same table briefly existed and was reverted —
+-- a `pg`/Neon connection-string incompatibility, `channel_binding=require`,
+-- made every DB call hang before any SQL executed, so it was pulled back out
+-- rather than risk it silently applying later against a database it was
+-- never actually tested on. That connection issue is fixed now — see
+-- src/db/pool.js — so this is a fresh, verified attempt.)
+--
+-- id is kept as VARCHAR(50), not SERIAL, to match the existing client-side
+-- "kj-xxxxxxx" id format already used by product_images.product_id/
+-- order_items.product_id above, and by any localStorage catalogue data being
+-- imported via POST /api/admin/import — this avoids a data-type migration
+-- on those two existing columns.
+CREATE TABLE IF NOT EXISTS categories (
+  id SERIAL PRIMARY KEY,
+  slug VARCHAR(150) UNIQUE NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  description TEXT,
+  image TEXT, -- Cloudinary URL
+  hidden BOOLEAN NOT NULL DEFAULT false,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS collections (
+  id SERIAL PRIMARY KEY,
+  slug VARCHAR(150) UNIQUE NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  description TEXT,
+  image TEXT, -- Cloudinary URL
+  hidden BOOLEAN NOT NULL DEFAULT false,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS products (
+  id VARCHAR(50) PRIMARY KEY,
+  slug VARCHAR(200) UNIQUE NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  sku VARCHAR(100),
+  brand VARCHAR(150) DEFAULT 'Khayaal Jewels',
+  category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+  collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL,
+  occasion VARCHAR(50),
+  price NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  old_price NUMERIC(10, 2),
+  cost_price NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  stock_qty INTEGER NOT NULL DEFAULT 0,
+  material VARCHAR(100),
+  stone VARCHAR(100),
+  color VARCHAR(100),
+  rating NUMERIC(2, 1) NOT NULL DEFAULT 0,
+  review_count INTEGER NOT NULL DEFAULT 0,
+  description TEXT,
+  short_description TEXT,
+  care_instructions TEXT,
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  specs JSONB NOT NULL DEFAULT '{}',
+  delivery_days INTEGER NOT NULL DEFAULT 5,
+  return_days INTEGER NOT NULL DEFAULT 7,
+  cod_available BOOLEAN NOT NULL DEFAULT true,
+  variants JSONB NOT NULL DEFAULT '[]',
+  ring_sizes JSONB,
+  is_best_seller BOOLEAN NOT NULL DEFAULT false,
+  is_new_arrival BOOLEAN NOT NULL DEFAULT false,
+  is_featured BOOLEAN NOT NULL DEFAULT false,
+  is_trending BOOLEAN NOT NULL DEFAULT false,
+  is_coming_soon BOOLEAN NOT NULL DEFAULT false,
+  is_published BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
+CREATE INDEX IF NOT EXISTS idx_products_collection ON products(collection_id);
+CREATE INDEX IF NOT EXISTS idx_products_published ON products(is_published);
+CREATE INDEX IF NOT EXISTS idx_products_slug ON products(slug);
+
 CREATE TABLE IF NOT EXISTS product_images (
   id SERIAL PRIMARY KEY,
   product_id VARCHAR(50) NOT NULL,
-  image_path TEXT NOT NULL, -- relative path, e.g. /uploads/products/polki-sets/product_1724689123.webp
+  image_path TEXT NOT NULL, -- opaque, driver-owned: local relative path or Cloudinary public_id
   is_thumbnail BOOLEAN NOT NULL DEFAULT false,
   display_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_product_images_product_id ON product_images(product_id);
+
+-- Added NOT VALID so this can't fail on rows already in product_images from
+-- before the products table existed — it only enforces the FK for rows
+-- inserted/updated from now on, without a (possibly failing) scan of
+-- existing data. Run `VALIDATE CONSTRAINT` manually later once you've
+-- confirmed every existing product_images.product_id has a matching row in
+-- products (e.g. after the one-time localStorage import).
+DO $$ BEGIN
+  ALTER TABLE product_images
+    ADD CONSTRAINT fk_product_images_product
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    NOT VALID;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
