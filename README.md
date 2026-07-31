@@ -2,8 +2,8 @@
 
 Express + PostgreSQL API for Khayaal Jewels. Handles customer Google OAuth login, orders,
 saved addresses, and admin product image uploads. This repository is the **backend only** —
-it deploys independently to Railway and is called over HTTP by a separate frontend repository
-(React/Vite, deployed to Vercel).
+it deploys independently to any Node.js host and is called over HTTP by a separate frontend
+repository (React/Vite, deployed to Vercel).
 
 > The product/category catalog, cart, and wishlist are **not** handled here — they live
 > entirely in the frontend's `localStorage`. This backend only owns customer auth, orders,
@@ -38,8 +38,8 @@ See `.env.example` for the full list with detailed explanations. Summary:
 | `JWT_SECRET` | Signs the customer auth JWT (stored in an httpOnly cookie) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_CALLBACK_URL` | Google Cloud OAuth client (not Firebase) |
 | `FRONTEND_URL` / `FRONTEND_URL_HTTP` | Allowed CORS origin(s) — the deployed frontend's URL(s) |
-| `PORT` | Port to listen on — Railway sets this automatically |
-| `NODE_ENV` | Must be `production` on Railway — flips auth cookies to `secure` + `sameSite=none`, required for the frontend (Vercel) and backend (Railway) living on different domains |
+| `PORT` | Port to listen on — most hosting platforms set this automatically |
+| `NODE_ENV` | Must be `production` in production — flips auth cookies to `secure` + `sameSite=none`, required whenever the frontend (Vercel) and backend live on different domains |
 | `ADMIN_API_KEY` | Interim key gating `/api/admin/customers` until real Firebase-Admin-SDK verification is wired up |
 
 The server logs a clear warning on startup listing any of the required vars
@@ -50,8 +50,8 @@ that are missing.
 
 1. Create a project at [neon.tech](https://neon.tech) and copy its connection string
    (already includes `?sslmode=require`, which `pg` picks up automatically).
-2. Set it as `DATABASE_URL` in Railway's environment variables.
-3. Run `npm run migrate` once (locally, pointed at the Neon URL, or via Railway's shell)
+2. Set it as `DATABASE_URL` in your hosting platform's environment variables.
+3. Run `npm run migrate` once (locally, pointed at the Neon URL, or via your host's shell/console)
    to create the schema — see `src/db/schema.sql` for the table definitions.
 
 `src/db/pool.js` also disables Node's `autoSelectFamily` and forces IPv4-first DNS resolution —
@@ -63,12 +63,13 @@ from certain networks, not something to remove.
 Product images are processed with Sharp and saved locally under `uploads/` (served statically
 at `/uploads/*`) via the driver in `src/services/storage/`.
 
-**Railway note:** Railway's filesystem is ephemeral — anything written to `uploads/` will be
-lost on redeploy or restart. This mirrors the current local-disk behavior exactly (no change
-in application logic), but for durable production uploads you'd eventually want to add an S3 /
-Cloudinary / GCS driver alongside `localDriver.js` and set `STORAGE_DRIVER` accordingly — the
-storage layer (`src/services/storage/index.js`) is already built to support that via a
-`{ save, remove, getUrl }` driver interface, only `local` is implemented today.
+**Note:** many hosting platforms (including most container/PaaS-style hosts) use an ephemeral
+filesystem — anything written to `uploads/` will be lost on redeploy or restart unless your
+platform provides a persistent volume. This mirrors the current local-disk behavior exactly
+(no change in application logic), but for durable production uploads you'd eventually want to
+add an S3 / Cloudinary / GCS driver alongside `localDriver.js` and set `STORAGE_DRIVER`
+accordingly — the storage layer (`src/services/storage/index.js`) is already built to support
+that via a `{ save, remove, getUrl }` driver interface, only `local` is implemented today.
 
 ## Scripts
 
@@ -78,21 +79,26 @@ storage layer (`src/services/storage/index.js`) is already built to support that
 | `npm start` | Start once, no auto-restart (production) |
 | `npm run migrate` | Run `src/db/schema.sql` against `DATABASE_URL` |
 
-## Deployment (Railway)
+## Deployment
 
-1. Create a new Railway project from this repository.
-2. Railway auto-detects Node.js from `package.json` and runs `npm install` + `npm start` —
-   no Dockerfile or extra config needed.
-3. Set all the environment variables listed above in Railway's dashboard, in particular:
+This backend is platform-agnostic — it's a standard Node.js/Express app with no
+platform-specific config files, scripts, or dependencies. It can be deployed to any
+Node.js hosting platform (a PaaS, a container host, a VPS, etc.):
+
+1. Deploy this repository to your chosen host, with the repo root as the working directory.
+2. Make sure your host runs `npm install` then `npm start` — no Dockerfile or extra build
+   config is required, since `package.json` already defines both steps.
+3. Set all the environment variables listed above in your platform's dashboard/config, in particular:
    - `NODE_ENV=production`
    - `DATABASE_URL` → your Neon connection string
    - `FRONTEND_URL` → your deployed Vercel URL (exact origin, e.g. `https://khayaal-jewels.vercel.app`, no trailing slash)
-   - `GOOGLE_CALLBACK_URL` → `https://<your-railway-domain>/auth/google/callback`, and add that
-     same URL to the Google Cloud OAuth client's "Authorized redirect URIs"
+   - `PORT` → most hosts set this automatically; the app already reads `process.env.PORT`
+   - `GOOGLE_CALLBACK_URL` → `https://<your-deployed-domain>/auth/google/callback`, and add
+     that same URL to the Google Cloud OAuth client's "Authorized redirect URIs"
 4. Run the migration once against the Neon database (`npm run migrate`, pointed at the same
-   `DATABASE_URL` Railway uses) before the first deploy that needs it.
+   `DATABASE_URL` your host uses) before the first deploy that needs it.
 5. Point the frontend's `VITE_API_URL` (in Vercel's environment variables) at this backend's
-   Railway URL.
+   deployed URL.
 
 ## API Routes
 
