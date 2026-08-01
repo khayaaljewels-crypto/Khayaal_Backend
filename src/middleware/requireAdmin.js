@@ -16,26 +16,19 @@ export async function requireAdmin(req, res, next) {
 
   try {
     decoded = await firebaseAuth.verifyIdToken(token);
-
-    console.log("==================================");
-    console.log("Decoded Email :", decoded.email);
-    console.log("Admin Email   :", process.env.ADMIN_EMAIL);
-    console.log("UID           :", decoded.uid);
-    console.log("==================================");
-
   } catch (err) {
-    console.error(err);
+    console.warn(`[requireAdmin] token verification failed for ${req.method} ${req.originalUrl}:`, err.message || err.code);
     return res.status(401).json({
       error: 'Invalid or expired admin session.'
     });
   }
 
   const adminEmail = process.env.ADMIN_EMAIL;
+  const authorized = Boolean(adminEmail) && decoded.email?.trim().toLowerCase() === adminEmail.trim().toLowerCase();
 
-  if (
-    !adminEmail ||
-    decoded.email?.trim().toLowerCase() !== adminEmail.trim().toLowerCase()
-  ) {
+  console.log(`[requireAdmin] ${req.method} ${req.originalUrl} — decodedEmail=${decoded.email} authorized=${authorized}`);
+
+  if (!authorized) {
     return res.status(403).json({
       error: 'Not authorized as admin.'
     });

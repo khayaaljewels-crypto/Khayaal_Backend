@@ -48,25 +48,41 @@ Please configure them before production.
   console.log('[env] All required environment variables are present:', requiredEnvVars.join(', '));
 }
 
+// Render's own filesystem is wiped on every deploy/restart (no persistent
+// disk by default) — the "local" storage driver is only safe for local dev.
+// `RENDER` is set automatically by Render's runtime, so this fires
+// specifically when actually running there, not on every non-cloudinary
+// local dev boot.
+if (process.env.RENDER && process.env.STORAGE_DRIVER !== 'cloudinary') {
+  console.error(`
+==========================================
+STORAGE_DRIVER is not set to "cloudinary" on Render
+
+Uploaded product/category/collection images are being written to local
+disk, which does NOT persist across deploys or restarts — every image will
+be silently lost the next time this service redeploys.
+
+Set STORAGE_DRIVER=cloudinary and CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY
+/ CLOUDINARY_API_SECRET in Render's environment variables.
+==========================================
+`);
+}
+
 const app = express();
 
 app.set("trust proxy", 1);
 
 /* ------------------------------------------
-   CORS
------------------------------------------- */
-
-/* ------------------------------------------
-   CORS
------------------------------------------- */
-
-/* ------------------------------------------
-   CORS
+   CORS — must run before express.json()/routes below: the response headers
+   it sets on `res` persist through the rest of the request (including into
+   the error handler at the bottom) regardless of what happens later, but
+   only if it runs first.
 ------------------------------------------ */
 
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
+  "http://localhost:3000",
   "https://khayaalofficial.in",
   "https://www.khayaalofficial.in",
   process.env.FRONTEND_URL,
@@ -86,7 +102,14 @@ app.use(
 
       console.warn(`❌ Blocked by CORS: ${origin}`);
 
-      return callback(new Error("Not allowed by CORS"));
+      // `credentials: true` below means this can never be "*" — an
+      // unrecognized origin is a real reject, not a wildcard fallback.
+      // err.status = 403 (rather than falling through to the default 500)
+      // makes the rejection show up in logs/response as what it is: a
+      // blocked origin, not a server bug.
+      const err = new Error("Not allowed by CORS");
+      err.status = 403;
+      return callback(err);
     },
 
     credentials: true,
@@ -106,10 +129,14 @@ app.use(
       "X-Requested-With",
       "X-Admin-Key",
     ],
+
+    // Lets browsers cache a preflight's result instead of re-sending an
+    // OPTIONS request before every single GET (the frontend's apiClient
+    // sends Content-Type: application/json even on GETs, which forces a
+    // preflight on every request otherwise).
+    maxAge: 86400,
   })
 );
-
-
 
 /* ------------------------------------------
    Middleware

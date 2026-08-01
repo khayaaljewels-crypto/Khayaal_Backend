@@ -102,6 +102,80 @@ const FIELD_MAP = {
 // `pg` sends them as a plain string/array literal Postgres can't coerce.
 const COLUMN_CASTS = { tags: '::text[]', specs: '::jsonb', variants: '::jsonb', ring_sizes: '::jsonb' };
 
+// Field-level checks for POST / and PUT /:id, shared so both a full create
+// and a partial update get the same rules. Every check only fires when the
+// field is actually present in the body — a partial PUT like { stockQty: 3 }
+// is validated only on the field it touches, not on everything else the
+// product already has. Replaces relying on Postgres to reject bad input
+// with a generic constraint-violation message (see PG_MESSAGE_BY_CODE in
+// index.js) — this gives the specific field and reason instead.
+const NON_NEGATIVE_NUMBER_FIELDS = [
+  'price', 'oldPrice', 'costPrice', 'stockQty', 'deliveryDays', 'returnDays', 'rating', 'reviewCount',
+];
+const BOOLEAN_FIELDS = [
+  'codAvailable', 'isBestSeller', 'isNewArrival', 'isFeatured', 'isTrending', 'isComingSoon', 'isPublished',
+];
+const ID_FIELDS = ['categoryId', 'collectionId'];
+
+function validateProductBody(body, { requireName = false } = {}) {
+  const errors = [];
+
+  const nameProvided = body.name !== undefined;
+  const nameBlank = nameProvided && !String(body.name).trim();
+  if (requireName && (!nameProvided || nameBlank)) {
+    errors.push({ field: 'name', message: 'name is required.' });
+  } else if (nameBlank) {
+    errors.push({ field: 'name', message: 'name cannot be blank.' });
+  }
+
+  for (const field of NON_NEGATIVE_NUMBER_FIELDS) {
+    if (body[field] === undefined || body[field] === null || body[field] === '') continue;
+    const num = Number(body[field]);
+    if (!Number.isFinite(num) || num < 0) {
+      errors.push({ field, message: `${field} must be a non-negative number.` });
+    }
+  }
+
+  for (const field of BOOLEAN_FIELDS) {
+    if (body[field] === undefined) continue;
+    if (typeof body[field] !== 'boolean') {
+      errors.push({ field, message: `${field} must be true or false.` });
+    }
+  }
+
+  for (const field of ID_FIELDS) {
+    if (body[field] === undefined || body[field] === null || body[field] === '') continue;
+    if (!Number.isInteger(Number(body[field]))) {
+      errors.push({ field, message: `${field} must be a valid id.` });
+    }
+  }
+
+  if (body.tags !== undefined && !Array.isArray(body.tags)) {
+    errors.push({ field: 'tags', message: 'tags must be an array of strings.' });
+  }
+
+  if (body.specs !== undefined && (typeof body.specs !== 'object' || body.specs === null || Array.isArray(body.specs))) {
+    errors.push({ field: 'specs', message: 'specs must be an object.' });
+  }
+
+  if (body.variants !== undefined && !Array.isArray(body.variants)) {
+    errors.push({ field: 'variants', message: 'variants must be an array.' });
+  }
+
+  return errors;
+}
+
+// A single readable string for the toast/error display every existing
+// caller already expects (apiClient surfaces body.error as one message),
+// plus the structured list under `details` for anything that wants
+// per-field granularity.
+function respondValidationError(res, errors) {
+  return res.status(400).json({
+    error: errors.map((e) => e.message).join(' '),
+    details: errors,
+  });
+}
+
 // Shared by PUT /:id and the draft-finalize branch of POST / below — builds
 // and runs the UPDATE, then returns the fresh row. `currentName` is only
 // needed as the slugify() fallback when neither slug nor name is present in
@@ -155,9 +229,10 @@ router.post(
 router.post(
   '/',
   asyncHandler(async (req, res) => {
-    const { name } = req.body;
-    if (!name) return res.status(400).json({ error: 'name is required.' });
+    const validationErrors = validateProductBody(req.body, { requireName: true });
+    if (validationErrors.length) return respondValidationError(res, validationErrors);
 
+    const { name } = req.body;
     const id = req.body.id || generateId();
 
     // Finalizing a draft (see POST /draft above): a row for this id may
@@ -198,6 +273,9 @@ router.put(
   asyncHandler(async (req, res) => {
     const existing = await getProductById(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Product not found.' });
+
+    const validationErrors = validateProductBody(req.body);
+    if (validationErrors.length) return respondValidationError(res, validationErrors);
 
     const row = await applyProductUpdate(req.params.id, existing.name, req.body);
     const images = await getImagesForProductIds([row.id], req);
