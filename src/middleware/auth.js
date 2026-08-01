@@ -31,18 +31,33 @@ export function clearAuthCookie(res) {
 // Attaches req.customer if a valid token cookie is present; does not reject
 // the request either way. Use `requireAuth` on routes that must be protected.
 export async function attachCustomer(req, _res, next) {
+  console.log("==================================");
+  console.log("URL:", req.originalUrl);
+  console.log("Origin:", req.headers.origin);
+  console.log("Cookie Header:", req.headers.cookie);
+
   const token = req.cookies?.[COOKIE_NAME];
+
+  console.log("JWT Token:", token);
+  console.log("==================================");
+
   if (!token) return next();
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    const result = await pool.query('SELECT * FROM customers WHERE id = $1', [payload.customerId]);
-    if (result.rows[0] && result.rows[0].status !== 'disabled') {
+
+    const result = await pool.query(
+      "SELECT * FROM customers WHERE id = $1",
+      [payload.customerId]
+    );
+
+    if (result.rows[0]) {
       req.customer = result.rows[0];
     }
-  } catch {
-    // invalid/expired token — treat as signed out, don't throw
+  } catch (err) {
+    console.error(err);
   }
+
   next();
 }
 
