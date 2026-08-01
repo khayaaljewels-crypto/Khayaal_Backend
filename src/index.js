@@ -270,6 +270,22 @@ app.use((err, req, res, next) => {
   console.error('================================');
 
   const status = err.status || PG_STATUS_BY_CODE[err.code] || 500;
+
+  // Opt-in escape hatch: routes that tag their own DB errors with
+  // exposeDbDetail (currently just adminProducts.js's INSERT/UPDATE
+  // helper — an admin-only, already-authenticated router) get the real
+  // Postgres message/detail/code back, to make "which field, exactly"
+  // debuggable without digging through server logs. Every other route
+  // keeps the generic mapped message below.
+  if (err.exposeDbDetail) {
+    return res.status(status).json({
+      success: false,
+      error: err.message,
+      details: err.detail,
+      code: err.code,
+    });
+  }
+
   // Client errors (4xx) get a safe, actionable message even in production —
   // they describe bad input, not an internal failure, so there's nothing
   // sensitive to hide. Only genuine 500s get masked.

@@ -102,6 +102,45 @@ const FIELD_MAP = {
 // `pg` sends them as a plain string/array literal Postgres can't coerce.
 const COLUMN_CASTS = { tags: '::text[]', specs: '::jsonb', variants: '::jsonb', ring_sizes: '::jsonb' };
 
+// `pg` serializes any JS Array parameter using Postgres's own array-literal
+// syntax ({a,b,c}), never JSON — regardless of a `::jsonb` cast in the SQL
+// text, which only affects what Postgres does with the value *after* pg has
+// already encoded it. That's fine for `tags` (cast to `::text[]`, which is
+// exactly the format pg produces for an array of strings), but `variants`
+// and `ring_sizes` are JSONB columns that store an *array* — pg's
+// array-literal encoding of an array of objects is not valid JSON, so
+// Postgres rejects it with 22P02 "invalid input syntax for type json" as
+// soon as the `::jsonb` cast tries to parse it. Plain objects (e.g. `specs`)
+// aren't affected — `pg` already JSON.stringify()s those by default — only
+// arrays bound for a jsonb column need to be stringified explicitly here.
+function serializeForColumn(column, value) {
+  if (COLUMN_CASTS[column] === '::jsonb' && value !== null) {
+    return JSON.stringify(value);
+  }
+  return value;
+}
+
+// Wraps the two queries built from FIELD_MAP (INSERT in POST /, UPDATE in
+// applyProductUpdate/POST /bulk) — logs the real Postgres error and tags it
+// so the global handler in index.js (see PG_MESSAGE_BY_CODE) returns the
+// actual message/detail/code to the caller instead of its usual generic
+// mapped message. Safe to do broadly here specifically because every route
+// in this file is already behind requireAdmin — there's no public-facing
+// route reusing this helper.
+async function runProductQuery(sql, values, context) {
+  try {
+    return await pool.query(sql, values);
+  } catch (err) {
+    console.error(`[adminProducts] query failed (${context}):`, {
+      message: err.message,
+      code: err.code,
+      detail: err.detail,
+    });
+    err.exposeDbDetail = true;
+    throw err;
+  }
+}
+
 // Field-level checks for POST / and PUT /:id, shared so both a full create
 // and a partial update get the same rules. Every check only fires when the
 // field is actually present in the body — a partial PUT like { stockQty: 3 }
@@ -192,14 +231,18 @@ async function applyProductUpdate(id, currentName, body) {
 
   for (const [jsField, column] of Object.entries(FIELD_MAP)) {
     if (body[jsField] === undefined) continue;
-    values.push(body[jsField]);
+    values.push(serializeForColumn(column, body[jsField]));
     setClauses.push(`${column} = $${values.length}${COLUMN_CASTS[column] ?? ''}`);
   }
 
   setClauses.push('updated_at = now()');
   values.push(id);
 
-  await pool.query(`UPDATE products SET ${setClauses.join(', ')} WHERE id = $${values.length}`, values);
+  await runProductQuery(
+    `UPDATE products SET ${setClauses.join(', ')} WHERE id = $${values.length}`,
+    values,
+    `UPDATE products id=${id}`
+  );
   return getProductById(id);
 }
 
@@ -229,8 +272,15 @@ router.post(
 router.post(
   '/',
   asyncHandler(async (req, res) => {
+    // Temporary debug logging (per request) — the incoming body and, if
+    // present, exactly which validation rule(s) rejected it.
+    console.log('[adminProducts] POST / — incoming body:', JSON.stringify(req.body));
+
     const validationErrors = validateProductBody(req.body, { requireName: true });
-    if (validationErrors.length) return respondValidationError(res, validationErrors);
+    if (validationErrors.length) {
+      console.log('[adminProducts] POST / — validation errors:', validationErrors);
+      return respondValidationError(res, validationErrors);
+    }
 
     const { name } = req.body;
     const id = req.body.id || generateId();
@@ -255,13 +305,14 @@ router.post(
     for (const [jsField, column] of Object.entries(FIELD_MAP)) {
       if (req.body[jsField] === undefined) continue;
       columns.push(column);
-      values.push(req.body[jsField]);
+      values.push(serializeForColumn(column, req.body[jsField]));
       placeholders.push(`$${values.length}${COLUMN_CASTS[column] ?? ''}`);
     }
 
-    const result = await pool.query(
+    const result = await runProductQuery(
       `INSERT INTO products (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`,
-      values
+      values,
+      `INSERT products id=${id}`
     );
     const row = await getProductById(result.rows[0].id);
     res.status(201).json({ product: serializeProduct(row, { includeCostPrice: true }) });
@@ -274,8 +325,13 @@ router.put(
     const existing = await getProductById(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Product not found.' });
 
+    console.log(`[adminProducts] PUT /${req.params.id} — incoming body:`, JSON.stringify(req.body));
+
     const validationErrors = validateProductBody(req.body);
-    if (validationErrors.length) return respondValidationError(res, validationErrors);
+    if (validationErrors.length) {
+      console.log(`[adminProducts] PUT /${req.params.id} — validation errors:`, validationErrors);
+      return respondValidationError(res, validationErrors);
+    }
 
     const row = await applyProductUpdate(req.params.id, existing.name, req.body);
     const images = await getImagesForProductIds([row.id], req);
@@ -316,14 +372,18 @@ router.post(
     const values = [];
     for (const [jsField, column] of Object.entries(FIELD_MAP)) {
       if (patch[jsField] === undefined) continue;
-      values.push(patch[jsField]);
+      values.push(serializeForColumn(column, patch[jsField]));
       setClauses.push(`${column} = $${values.length}${COLUMN_CASTS[column] ?? ''}`);
     }
     if (setClauses.length === 0) return res.status(400).json({ error: 'patch had no recognized fields.' });
 
     setClauses.push('updated_at = now()');
     values.push(ids);
-    await pool.query(`UPDATE products SET ${setClauses.join(', ')} WHERE id = ANY($${values.length})`, values);
+    await runProductQuery(
+      `UPDATE products SET ${setClauses.join(', ')} WHERE id = ANY($${values.length})`,
+      values,
+      'bulk UPDATE products'
+    );
     res.json({ ok: true, updated: ids.length });
   })
 );
