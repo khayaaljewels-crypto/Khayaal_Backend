@@ -1,11 +1,13 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // server/uploads — sits next to src/, not inside it, so it isn't bundled/watched as source.
-import process from 'process';
-
+// Assumes the process is launched from the repo root (true for `npm start`
+// on Render and locally) — process.cwd() would resolve elsewhere if that
+// ever changes, unlike a __dirname-relative path, but this must stay
+// consistent with the identical process.cwd() used for the static mount in
+// index.js, or saved files and served files would point at two different
+// directories.
 const UPLOADS_ROOT = path.join(process.cwd(), 'uploads');
 
 // entityType is the top-level uploads namespace (products, categories,
@@ -22,33 +24,22 @@ async function save({ buffer, filename, entityType = 'products', folder }) {
 
   const dir = path.join(UPLOADS_ROOT, ...segments);
 
-  console.log("UPLOADS_ROOT:", UPLOADS_ROOT);
-  console.log("Saving directory:", dir);
+  console.log('[localDriver] UPLOADS_ROOT:', UPLOADS_ROOT);
+  console.log('[localDriver] saving directory:', dir);
 
   await fs.mkdir(dir, { recursive: true });
 
   const fullPath = path.join(dir, filename);
+  await fs.writeFile(fullPath, buffer);
 
-  console.log("Saving file:", fullPath);
+  try {
+    await fs.access(fullPath);
+    console.log('[localDriver] confirmed on disk:', fullPath);
+  } catch {
+    console.log('[localDriver] NOT found immediately after save:', fullPath);
+  }
 
-  const fullPath = path.join(dir, filename);
-
-await fs.writeFile(fullPath, buffer);
-
-console.log("Saved to:", fullPath);
-
-try {
-  await fs.access(fullPath);
-  console.log("✅ File exists after save.");
-} catch {
-  console.log("❌ File NOT found after save.");
-}
-
-return `/uploads/${segments.join('/')}/${filename}`;
-
-  console.log("File saved successfully.");
-
-  return `/uploads/${segments.join("/")}/${filename}`;
+  return `/uploads/${segments.join('/')}/${filename}`;
 }
 
 // Overwrites the file at an existing relativePath with new bytes, keeping
@@ -58,13 +49,6 @@ async function replace(relativePath, buffer) {
   const filePath = path.join(UPLOADS_ROOT, relativePath.replace(/^\/uploads\//, ''));
   await fs.writeFile(filePath, buffer);
 }
-
-import process from 'process';
-
-app.use(
-  '/uploads',
-  express.static(path.join(process.cwd(), 'uploads'))
-);
 
 async function remove(relativePath) {
   if (!relativePath?.startsWith('/uploads/')) return;
