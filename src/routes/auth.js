@@ -28,6 +28,11 @@ router.get(
 // here — this route is a full-page browser navigation target, so a JSON
 // response looks like a broken/blank page, not a controlled failure.
 router.get('/google/callback', requireGoogleConfigured, (req, res) => {
+  console.log("================================");
+  console.log("GOOGLE CALLBACK QUERY:", req.query);
+  console.log("GOOGLE CALLBACK URL:", req.originalUrl);
+  console.log("================================");
+
   passport.authenticate('google', { session: false }, (err, user, info) => {
     const accountUrl = `${process.env.FRONTEND_URL}/my-account`;
 
