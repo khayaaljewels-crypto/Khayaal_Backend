@@ -4,7 +4,9 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // server/uploads — sits next to src/, not inside it, so it isn't bundled/watched as source.
-const UPLOADS_ROOT = path.join(__dirname, '../../../uploads');
+import process from 'process';
+
+const UPLOADS_ROOT = path.join(process.cwd(), 'uploads');
 
 // entityType is the top-level uploads namespace (products, categories,
 // collections, occasions, banners); folder is an optional sub-folder within
@@ -13,11 +15,40 @@ const UPLOADS_ROOT = path.join(__dirname, '../../../uploads');
 async function save({ buffer, filename, entityType = 'products', folder }) {
   const safeEntityType = entityType.replace(/[^a-z0-9-]/gi, '') || 'products';
   const safeFolder = folder ? folder.replace(/[^a-z0-9-]/gi, '') || 'uncategorized' : null;
-  const segments = safeFolder ? [safeEntityType, safeFolder] : [safeEntityType];
+
+  const segments = safeFolder
+    ? [safeEntityType, safeFolder]
+    : [safeEntityType];
+
   const dir = path.join(UPLOADS_ROOT, ...segments);
+
+  console.log("UPLOADS_ROOT:", UPLOADS_ROOT);
+  console.log("Saving directory:", dir);
+
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, filename), buffer);
-  return `/uploads/${segments.join('/')}/${filename}`;
+
+  const fullPath = path.join(dir, filename);
+
+  console.log("Saving file:", fullPath);
+
+  const fullPath = path.join(dir, filename);
+
+await fs.writeFile(fullPath, buffer);
+
+console.log("Saved to:", fullPath);
+
+try {
+  await fs.access(fullPath);
+  console.log("✅ File exists after save.");
+} catch {
+  console.log("❌ File NOT found after save.");
+}
+
+return `/uploads/${segments.join('/')}/${filename}`;
+
+  console.log("File saved successfully.");
+
+  return `/uploads/${segments.join("/")}/${filename}`;
 }
 
 // Overwrites the file at an existing relativePath with new bytes, keeping
@@ -27,6 +58,13 @@ async function replace(relativePath, buffer) {
   const filePath = path.join(UPLOADS_ROOT, relativePath.replace(/^\/uploads\//, ''));
   await fs.writeFile(filePath, buffer);
 }
+
+import process from 'process';
+
+app.use(
+  '/uploads',
+  express.static(path.join(process.cwd(), 'uploads'))
+);
 
 async function remove(relativePath) {
   if (!relativePath?.startsWith('/uploads/')) return;

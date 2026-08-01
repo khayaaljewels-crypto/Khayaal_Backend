@@ -177,7 +177,12 @@ app.use((req, res, next) => {
    Uploaded product images (static files)
 ------------------------------------------ */
 
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+import process from 'process';
+
+app.use(
+  '/uploads',
+  express.static(path.join(process.cwd(), 'uploads'))
+);
 
 /* ------------------------------------------
    Health Check

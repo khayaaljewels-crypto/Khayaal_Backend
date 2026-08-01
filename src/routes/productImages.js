@@ -88,19 +88,6 @@ router.post('/products/:productId/images', uploadImages, asyncHandler('POST /pro
   const files = req.files ?? [];
   if (files.length === 0) return res.status(400).json({ error: 'No images were uploaded.' });
 
-  // Every product — including a brand new one — must exist as a row before
-  // images can attach to it (product_images.product_id is a foreign key).
-  // Checking this upfront turns what would otherwise be a generic
-  // "Referenced record does not exist." constraint-violation message into
-  // an actionable one: create a draft first (POST /api/admin/products/draft),
-  // which is exactly what the admin form's ImageUploader already does.
-  const productExists = await pool.query('SELECT 1 FROM products WHERE id = $1', [productId]);
-  if (productExists.rows.length === 0) {
-    return res.status(404).json({
-      error: `Product "${productId}" does not exist. Create a draft product first (POST /api/admin/products/draft) before uploading images.`,
-    });
-  }
-
   let existingCountResult;
   try {
     existingCountResult = await pool.query('SELECT COUNT(*)::int AS count FROM product_images WHERE product_id = $1', [productId]);
@@ -242,11 +229,6 @@ router.post('/images/:id/attach', asyncHandler('POST /images/:id/attach', async 
 
   const source = await pool.query('SELECT * FROM product_images WHERE id = $1', [req.params.id]);
   if (!source.rows[0]) return res.status(404).json({ error: 'Image not found.' });
-
-  const targetExists = await pool.query('SELECT 1 FROM products WHERE id = $1', [targetProductId]);
-  if (targetExists.rows.length === 0) {
-    return res.status(404).json({ error: `Target product "${targetProductId}" does not exist.` });
-  }
 
   const existingCount = await pool.query(
     'SELECT COUNT(*)::int AS count FROM product_images WHERE product_id = $1',
