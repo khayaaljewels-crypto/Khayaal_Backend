@@ -21,6 +21,7 @@ import categoryRoutes, { adminCategoryRoutes } from './routes/categories.js';
 import collectionRoutes, { adminCollectionRoutes } from './routes/collections.js';
 import adminImportRoutes from './routes/adminImport.js';
 import { testConnection } from './db/pool.js';
+import { storageDriverName, isCloudinaryConfigured } from './services/storage/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,20 +53,27 @@ Please configure them before production.
 // disk by default) — the "local" storage driver is only safe for local dev.
 // `RENDER` is set automatically by Render's runtime, so this fires
 // specifically when actually running there, not on every non-cloudinary
-// local dev boot.
-if (process.env.RENDER && process.env.STORAGE_DRIVER !== 'cloudinary') {
+// local dev boot. storageDriverName already auto-selects cloudinary when
+// its credentials are present (see services/storage/index.js) — if this
+// still isn't "cloudinary" here, the credentials themselves are genuinely
+// missing/incomplete, not just the STORAGE_DRIVER flag.
+if (process.env.RENDER && storageDriverName !== 'cloudinary') {
   console.error(`
 ==========================================
-STORAGE_DRIVER is not set to "cloudinary" on Render
+Image storage is using local disk on Render (driver: ${storageDriverName})
 
 Uploaded product/category/collection images are being written to local
 disk, which does NOT persist across deploys or restarts — every image will
 be silently lost the next time this service redeploys.
 
-Set STORAGE_DRIVER=cloudinary and CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY
-/ CLOUDINARY_API_SECRET in Render's environment variables.
+CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET are
+${isCloudinaryConfigured ? 'present' : 'MISSING'} in this environment.
+Set all three in Render's environment variables — STORAGE_DRIVER is
+auto-detected once they're present, no need to set it separately.
 ==========================================
 `);
+} else {
+  console.log(`[storage] Using "${storageDriverName}" driver.`);
 }
 
 const app = express();
@@ -180,6 +188,11 @@ app.get('/health', (_req, res) => {
     success: true,
     message: 'Khayaal Backend Running',
     environment: process.env.NODE_ENV || 'development',
+    // Lets this be checked with a single request instead of digging through
+    // Render's log history — "local" here means uploaded images will not
+    // survive the next deploy/restart.
+    storageDriver: storageDriverName,
+    cloudinaryConfigured: isCloudinaryConfigured,
   });
 });
 
