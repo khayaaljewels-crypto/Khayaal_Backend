@@ -102,6 +102,56 @@ const FIELD_MAP = {
 // `pg` sends them as a plain string/array literal Postgres can't coerce.
 const COLUMN_CASTS = { tags: '::text[]', specs: '::jsonb', variants: '::jsonb', ring_sizes: '::jsonb' };
 
+// Shared by PUT /:id and the draft-finalize branch of POST / below — builds
+// and runs the UPDATE, then returns the fresh row. `currentName` is only
+// needed as the slugify() fallback when neither slug nor name is present in
+// the request body.
+async function applyProductUpdate(id, currentName, body) {
+  const setClauses = [];
+  const values = [];
+
+  if (body.slug !== undefined || body.name !== undefined) {
+    const newSlug = body.slug ? slugify(body.slug) : slugify(body.name ?? currentName);
+    values.push(newSlug);
+    setClauses.push(`slug = $${values.length}`);
+  }
+
+  for (const [jsField, column] of Object.entries(FIELD_MAP)) {
+    if (body[jsField] === undefined) continue;
+    values.push(body[jsField]);
+    setClauses.push(`${column} = $${values.length}${COLUMN_CASTS[column] ?? ''}`);
+  }
+
+  setClauses.push('updated_at = now()');
+  values.push(id);
+
+  await pool.query(`UPDATE products SET ${setClauses.join(', ')} WHERE id = $${values.length}`, values);
+  return getProductById(id);
+}
+
+// The admin form generates/receives a product id up front (see POST
+// /draft below) so ImageUploader has something real to attach uploaded
+// images to (product_images.product_id) before the product itself has been
+// saved. Draft rows always start unpublished, with a blank name and a slug
+// equal to their id — placeholder values, never shown anywhere public
+// (public /products routes only ever return is_published = true rows).
+router.post(
+  '/draft',
+  asyncHandler(async (req, res) => {
+    const id = generateId();
+
+    const result = await pool.query(
+      `INSERT INTO products (id, name, slug, is_published, created_at, updated_at)
+       VALUES ($1, '', $1, false, now(), now())
+       RETURNING *`,
+      [id]
+    );
+
+    const row = await getProductById(result.rows[0].id);
+    res.status(201).json({ product: serializeProduct(row, { includeCostPrice: true }) });
+  })
+);
+
 router.post(
   '/',
   asyncHandler(async (req, res) => {
@@ -109,6 +159,18 @@ router.post(
     if (!name) return res.status(400).json({ error: 'name is required.' });
 
     const id = req.body.id || generateId();
+
+    // Finalizing a draft (see POST /draft above): a row for this id may
+    // already exist — e.g. one product_images upload happened before Save
+    // was clicked — so update it in place instead of attempting a second
+    // INSERT, which would fail on the id/slug unique constraints.
+    const existing = await getProductById(id);
+    if (existing) {
+      const row = await applyProductUpdate(id, existing.name, req.body);
+      const images = await getImagesForProductIds([row.id], req);
+      return res.json({ product: serializeProduct(row, { images: images[row.id] ?? [], includeCostPrice: true }) });
+    }
+
     const slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
 
     const columns = ['id', 'slug'];
@@ -137,26 +199,7 @@ router.put(
     const existing = await getProductById(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Product not found.' });
 
-    const setClauses = [];
-    const values = [];
-
-    if (req.body.slug !== undefined || req.body.name !== undefined) {
-      const newSlug = req.body.slug ? slugify(req.body.slug) : slugify(req.body.name ?? existing.name);
-      values.push(newSlug);
-      setClauses.push(`slug = $${values.length}`);
-    }
-
-    for (const [jsField, column] of Object.entries(FIELD_MAP)) {
-      if (req.body[jsField] === undefined) continue;
-      values.push(req.body[jsField]);
-      setClauses.push(`${column} = $${values.length}${COLUMN_CASTS[column] ?? ''}`);
-    }
-
-    setClauses.push('updated_at = now()');
-    values.push(req.params.id);
-
-    await pool.query(`UPDATE products SET ${setClauses.join(', ')} WHERE id = $${values.length}`, values);
-    const row = await getProductById(req.params.id);
+    const row = await applyProductUpdate(req.params.id, existing.name, req.body);
     const images = await getImagesForProductIds([row.id], req);
     res.json({ product: serializeProduct(row, { images: images[row.id] ?? [], includeCostPrice: true }) });
   })
