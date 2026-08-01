@@ -1,30 +1,23 @@
 import { Router } from 'express';
 import { pool } from '../db/pool.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 
 const router = Router();
 
-// INTERIM PROTECTION ONLY — not wired into the admin frontend yet.
-//
-// The admin dashboard authenticates with Firebase (see
-// PROJECT_DOCUMENTATION/07_AUTH_SYSTEM.md), while this backend only knows
-// about the customer-facing JWT cookie system. Properly protecting these
-// routes for real admin use requires verifying the admin's Firebase ID
-// token here with the Firebase Admin SDK (needs a service-account key,
-// which hasn't been provided/configured yet). Until that's wired up, these
-// routes are gated by a shared secret header meant for local
-// testing/curl/Postman only — do NOT expose this key in any frontend code,
-// and do NOT treat this as production-ready admin auth.
-function requireAdminKey(req, res, next) {
-  const key = req.headers['x-admin-key'];
-  if (!process.env.ADMIN_API_KEY || key !== process.env.ADMIN_API_KEY) {
-    return res.status(401).json({ error: 'Missing or invalid admin key.' });
-  }
-  next();
+// This exposes real customer PII (email, phone, order totals), so it's
+// gated the same way as every other /api/admin/* route: the admin
+// dashboard's real Firebase ID token, verified server-side. Previously
+// gated by a shared ADMIN_API_KEY header meant only for local curl/Postman
+// testing — not safe as the only protection for a PII-returning endpoint,
+// and requireAdmin has been available (and used everywhere else) since
+// Firebase Admin was wired up.
+router.use(requireAdmin);
+
+function asyncHandler(fn) {
+  return (req, res, next) => fn(req, res, next).catch(next);
 }
 
-router.use(requireAdminKey);
-
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { search } = req.query;
   const params = [];
   let where = '';
@@ -57,9 +50,9 @@ router.get('/', async (req, res) => {
       totalSpent: Number(c.total_spent),
     })),
   });
-});
+}));
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', asyncHandler(async (req, res) => {
   const customerResult = await pool.query('SELECT * FROM customers WHERE id = $1', [req.params.id]);
   if (customerResult.rows.length === 0) return res.status(404).json({ error: 'Customer not found.' });
 
@@ -87,6 +80,6 @@ router.get('/:id', async (req, res) => {
       createdAt: o.created_at,
     })),
   });
-});
+}));
 
 export default router;

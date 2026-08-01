@@ -124,6 +124,21 @@ app.use(passport.initialize());
 app.use(attachCustomer);
 
 /* ------------------------------------------
+   Request logging — one line per request, after it finishes (so the real
+   status code is known), which is what Render's log viewer expects to
+   tail. Kept as a plain middleware rather than a dependency (morgan etc.)
+   since this is the entire feature set needed here.
+------------------------------------------ */
+
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - startedAt}ms`);
+  });
+  next();
+});
+
+/* ------------------------------------------
    Uploaded product images (static files)
 ------------------------------------------ */
 
@@ -282,10 +297,18 @@ async function start() {
     throw err;
   });
 
-  process.on("SIGINT", () => {
-    console.log("\nStopping server...");
+  // Render (and most container platforms) stop a service with SIGTERM, not
+  // SIGINT — only handling SIGINT meant every deploy/restart killed
+  // in-flight requests abruptly instead of letting them finish.
+  const shutdown = (signal) => {
+    console.log(`\n${signal} received, stopping server...`);
     server.close(() => process.exit(0));
-  });
+    // Render gives a service ~10s to exit gracefully before SIGKILL — don't
+    // hang past that waiting on a stuck connection.
+    setTimeout(() => process.exit(1), 9000).unref();
+  };
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 start();

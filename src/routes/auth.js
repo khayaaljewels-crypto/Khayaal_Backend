@@ -49,7 +49,7 @@ router.get('/google/callback', requireGoogleConfigured, (req, res) => {
 
     try {
       const token = issueToken(user);
-      setAuthCookie(res, token);
+      setAuthCookie(req, res, token);
       return res.redirect(accountUrl);
     } catch (tokenErr) {
       console.error('[auth] Failed to issue JWT after successful Google auth:', tokenErr.message, tokenErr.stack);
@@ -63,7 +63,7 @@ router.get('/me', requireAuth, (req, res) => {
 });
 
 router.post('/logout', (req, res) => {
-  clearAuthCookie(res);
+  clearAuthCookie(req, res);
   res.json({ ok: true });
 });
 
