@@ -2,18 +2,35 @@ import { Router } from 'express';
 import { pool } from '../../db/pool.js';
 import { requireAdmin } from '../../middleware/requireAdmin.js';
 import { slugify } from '../../utils/slugify.js';
+import { storage } from '../../services/storage/index.js';
 
 function asyncHandler(fn) {
   return (req, res, next) => fn(req, res, next).catch(next);
 }
 
-function serialize(row) {
+// Mirrors how product images are resolved (getImagesForProductIds in
+// productQuery.js): the DB is expected to hold an opaque, driver-owned
+// value (a local relative path or a Cloudinary public_id), resolved to a
+// full URL at read time via storage.getUrl() — never a URL baked in at
+// upload time, which would still work today but breaks permanently if the
+// backend's host/domain ever changes. Rows created before this fix already
+// have a full absolute URL saved directly in `image` (the admin form used
+// to save the upload response's `url` field verbatim, not its `path`) —
+// those are detected and returned as-is, since re-resolving an
+// already-absolute URL through storage.getUrl() would double-prefix it.
+function resolveImageUrl(image, req) {
+  if (!image) return image;
+  if (/^https?:\/\//i.test(image)) return image;
+  return storage.getUrl(image, { requestOrigin: `${req.protocol}://${req.get('host')}` });
+}
+
+function serialize(row, req) {
   return {
     id: row.id,
     slug: row.slug,
     name: row.name,
     description: row.description,
-    image: row.image,
+    image: resolveImageUrl(row.image, req),
     hidden: row.hidden,
     displayOrder: row.display_order,
     createdAt: row.created_at,
@@ -32,11 +49,11 @@ export function createTaxonomyRoutes(table) {
 
   publicRouter.get(
     '/',
-    asyncHandler(async (_req, res) => {
+    asyncHandler(async (req, res) => {
       const result = await pool.query(
         `SELECT * FROM ${table} WHERE hidden = false ORDER BY display_order ASC, name ASC`
       );
-      res.json({ [table]: result.rows.map(serialize) });
+      res.json({ [table]: result.rows.map((row) => serialize(row, req)) });
     })
   );
 
@@ -44,9 +61,9 @@ export function createTaxonomyRoutes(table) {
 
   adminRouter.get(
     '/',
-    asyncHandler(async (_req, res) => {
+    asyncHandler(async (req, res) => {
       const result = await pool.query(`SELECT * FROM ${table} ORDER BY display_order ASC, name ASC`);
-      res.json({ [table]: result.rows.map(serialize) });
+      res.json({ [table]: result.rows.map((row) => serialize(row, req)) });
     })
   );
 
@@ -63,7 +80,7 @@ export function createTaxonomyRoutes(table) {
          RETURNING *`,
         [slug, name, description, image, hidden, displayOrder]
       );
-      res.status(201).json({ [table.slice(0, -1)]: serialize(result.rows[0]) });
+      res.status(201).json({ [table.slice(0, -1)]: serialize(result.rows[0], req) });
     })
   );
 
@@ -88,7 +105,7 @@ export function createTaxonomyRoutes(table) {
          RETURNING *`,
         [slug, name, description, image, hidden, displayOrder, req.params.id]
       );
-      res.json({ [table.slice(0, -1)]: serialize(result.rows[0]) });
+      res.json({ [table.slice(0, -1)]: serialize(result.rows[0], req) });
     })
   );
 
