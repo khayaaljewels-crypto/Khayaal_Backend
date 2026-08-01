@@ -18,8 +18,14 @@ export function setAuthCookie(res, token) {
     maxAge: 30 * 24 * 60 * 60 * 1000,
   });
 }
+
 export function clearAuthCookie(res) {
-  res.clearCookie(COOKIE_NAME);
+  res.clearCookie(COOKIE_NAME, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    path: "/",
+  });
 }
 
 // Attaches req.customer if a valid token cookie is present; does not reject

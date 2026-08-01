@@ -50,6 +50,8 @@ Please configure them before production.
 
 const app = express();
 
+app.set("trust proxy", 1);
+
 /* ------------------------------------------
    CORS
 ------------------------------------------ */
@@ -189,6 +191,23 @@ app.use((req, res) => {
    Error Handler
 ------------------------------------------ */
 
+// Postgres constraint violations are client errors (bad input), not server
+// bugs — mapping them here means every route gets correct status codes for
+// free (duplicate slug, a category_id/collection_id that doesn't exist,
+// malformed JSON/array literal) without repeating try/catch in each route.
+const PG_STATUS_BY_CODE = {
+  '23505': 409, // unique_violation
+  '23503': 400, // foreign_key_violation
+  '23502': 400, // not_null_violation
+  '22P02': 400, // invalid_text_representation
+};
+const PG_MESSAGE_BY_CODE = {
+  '23505': 'A record with this value already exists.',
+  '23503': 'Referenced record does not exist.',
+  '23502': 'A required field is missing.',
+  '22P02': 'One or more fields have an invalid value.',
+};
+
 app.use((err, req, res, next) => {
   // Some errors (e.g. pg-pool's AggregateError when every connection
   // attempt times out) carry an empty `.message` — falling back through
@@ -208,11 +227,17 @@ app.use((err, req, res, next) => {
   console.error(err.stack || err);
   console.error('================================');
 
-  const status = err.status || 500;
+  const status = err.status || PG_STATUS_BY_CODE[err.code] || 500;
+  // Client errors (4xx) get a safe, actionable message even in production —
+  // they describe bad input, not an internal failure, so there's nothing
+  // sensitive to hide. Only genuine 500s get masked.
+  const isClientError = status >= 400 && status < 500;
+  const clientMessage = PG_MESSAGE_BY_CODE[err.code] || detail;
 
   res.status(status).json({
     success: false,
-    message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : detail,
+    error: isClientError ? clientMessage : undefined,
+    message: !isClientError && process.env.NODE_ENV === 'production' ? 'Internal Server Error' : clientMessage,
     ...(process.env.NODE_ENV !== 'production' ? { stack: err.stack } : {}),
   });
 });

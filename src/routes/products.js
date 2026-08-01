@@ -4,6 +4,7 @@ import {
   queryProducts,
   queryFacets,
   getProductBySlug,
+  getPublicProductById,
   getProductsByIds,
   getRelatedProducts,
   getCompleteTheLook,
@@ -81,10 +82,17 @@ router.get(
   })
 );
 
+// Accepts either the SEO slug (what every storefront link actually uses)
+// or the raw product id — the id fallback only exists to satisfy callers
+// that only have the id on hand (e.g. an external integration), and never
+// exposes a hidden product since both lookups filter onlyPublished.
 router.get(
-  '/:slug',
+  '/:idOrSlug',
   asyncHandler(async (req, res) => {
-    const row = await getProductBySlug(req.params.slug, { onlyPublished: true });
+    const { idOrSlug } = req.params;
+    const row =
+      (await getProductBySlug(idOrSlug, { onlyPublished: true })) ??
+      (await getPublicProductById(idOrSlug, { onlyPublished: true }));
     if (!row) return res.status(404).json({ error: 'Product not found.' });
 
     const [related, completeTheLook] = await Promise.all([

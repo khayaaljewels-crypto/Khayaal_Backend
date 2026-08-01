@@ -7,7 +7,7 @@ import { firebaseAuth, isFirebaseAdminConfigured } from '../config/firebaseAdmin
 // (a shared secret can't be used there without shipping it in the bundle).
 export async function requireAdmin(req, res, next) {
   if (!isFirebaseAdminConfigured) {
-    return res.status(500).json({ error: 'Admin auth is not configured on this server.' });
+    return res.status(503).json({ error: 'Admin auth is not configured on this server.' });
   }
 
   const header = req.headers.authorization || '';

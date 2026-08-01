@@ -179,6 +179,19 @@ export async function getProductById(id) {
   return result.rows[0] ?? null;
 }
 
+// Public counterpart to getProductById — same lookup, but respects
+// onlyPublished so a hidden product's raw id can never be used to bypass
+// the slug route's visibility check.
+export async function getPublicProductById(id, { onlyPublished = true } = {}) {
+  const conditions = ['p.id = $1'];
+  if (onlyPublished) conditions.push('p.is_published = true');
+  const result = await pool.query(
+    `SELECT ${PRODUCT_SELECT} ${PRODUCT_JOINS} WHERE ${conditions.join(' AND ')}`,
+    [id]
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function getProductsByIds(ids, { onlyPublished = true } = {}) {
   if (!ids.length) return [];
   const conditions = ['p.id = ANY($1)'];
