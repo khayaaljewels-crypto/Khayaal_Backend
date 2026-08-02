@@ -76,6 +76,11 @@ auto-detected once they're present, no need to set it separately.
   console.log(`[storage] Using "${storageDriverName}" driver.`);
 }
 
+// Captured once at module load, not per-request — lets /health answer "did
+// a new deploy actually happen" (this jumps forward after every restart)
+// instead of just echoing the current time on every call.
+const serverStartedAt = new Date().toISOString();
+
 const app = express();
 
 app.set("trust proxy", 1);
@@ -198,6 +203,11 @@ app.get('/health', (_req, res) => {
     // survive the next deploy/restart.
     storageDriver: storageDriverName,
     cloudinaryConfigured: isCloudinaryConfigured,
+    // RENDER_GIT_COMMIT is set automatically by Render on every deploy —
+    // answers "is my latest fix actually live yet?" with one curl instead
+    // of guessing from behavior. null locally, where it's not set.
+    gitCommit: process.env.RENDER_GIT_COMMIT || null,
+    serverStartedAt,
   });
 });
 
