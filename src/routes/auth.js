@@ -28,31 +28,34 @@ router.get(
 // here — this route is a full-page browser navigation target, so a JSON
 // response looks like a broken/blank page, not a controlled failure.
 router.get('/google/callback', requireGoogleConfigured, (req, res) => {
+  const ua = req.headers['user-agent'] ?? '(none)';
   console.log("================================");
   console.log("GOOGLE CALLBACK QUERY:", req.query);
   console.log("GOOGLE CALLBACK URL:", req.originalUrl);
+  console.log("GOOGLE CALLBACK UA:", ua);
   console.log("================================");
 
   passport.authenticate('google', { session: false }, (err, user, info) => {
     const accountUrl = `${process.env.FRONTEND_URL}/my-account`;
 
     if (err) {
-      console.error('[auth] Google OAuth callback error:', err.message || err.code, err.stack);
+      console.error(`[auth] Google OAuth callback error (ua="${ua}"):`, err.message || err.code, err.stack);
       const reason = err.status === 503 ? 'server_unavailable' : 'server_error';
       return res.redirect(`${accountUrl}?error=${reason}`);
     }
 
     if (!user) {
-      console.warn('[auth] Google OAuth callback: authentication failed —', info?.message || 'no user returned');
+      console.warn(`[auth] Google OAuth callback: authentication failed (ua="${ua}") —`, info?.message || 'no user returned');
       return res.redirect(`${accountUrl}?error=auth_failed`);
     }
 
     try {
       const token = issueToken(user);
       setAuthCookie(req, res, token);
+      console.log(`[auth] Google OAuth success — customerId=${user.id} email=${user.email} ua="${ua}" — redirecting to ${accountUrl}`);
       return res.redirect(accountUrl);
     } catch (tokenErr) {
-      console.error('[auth] Failed to issue JWT after successful Google auth:', tokenErr.message, tokenErr.stack);
+      console.error(`[auth] Failed to issue JWT after successful Google auth (ua="${ua}"):`, tokenErr.message, tokenErr.stack);
       return res.redirect(`${accountUrl}?error=server_error`);
     }
   })(req, res);

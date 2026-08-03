@@ -34,7 +34,15 @@ function cookieOptions(req) {
 }
 
 export function setAuthCookie(req, res, token) {
-  res.cookie(COOKIE_NAME, token, { ...cookieOptions(req), maxAge: 30 * 24 * 60 * 60 * 1000 });
+  const options = cookieOptions(req);
+  // Mobile-vs-desktop redirect-loop reports need to confirm exactly what
+  // attributes actually went out on Set-Cookie for a given device, without
+  // guessing from req.secure alone — logged here, at the point of the real
+  // res.cookie() call, not derived separately.
+  console.log(
+    `[auth] setAuthCookie — secure=${options.secure} sameSite=${options.sameSite} origin=${req.headers.origin ?? '(none)'} ua="${req.headers['user-agent'] ?? '(none)'}"`
+  );
+  res.cookie(COOKIE_NAME, token, { ...options, maxAge: 30 * 24 * 60 * 60 * 1000 });
 }
 
 export function clearAuthCookie(req, res) {
@@ -54,7 +62,9 @@ export async function attachCustomer(req, _res, next) {
   // at all) without ever printing the token itself — it's a 30-day bearer
   // credential, and logs (Render's dashboard, log drains) are readable by
   // more people than just this admin.
-  console.log(`[auth] ${req.method} ${req.originalUrl} — origin=${req.headers.origin ?? '(none)'} secure=${req.secure} cookiePresent=${Boolean(token)}`);
+  console.log(
+    `[auth] ${req.method} ${req.originalUrl} — origin=${req.headers.origin ?? '(none)'} secure=${req.secure} cookiePresent=${Boolean(token)} ua="${req.headers['user-agent'] ?? '(none)'}"`
+  );
 
   if (!token) return next();
 
