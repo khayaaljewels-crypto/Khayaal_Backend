@@ -134,6 +134,35 @@ CREATE TABLE IF NOT EXISTS collections (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Occasions are a managed taxonomy, like categories and collections. Product
+-- rows deliberately continue to store the occasion slug as text so existing
+-- catalogue data and the GET /products?occasion=... filter remain compatible.
+CREATE TABLE IF NOT EXISTS occasions (
+  id SERIAL PRIMARY KEY,
+  slug VARCHAR(150) UNIQUE NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  description TEXT,
+  image TEXT, -- opaque storage path or Cloudinary public_id
+  hidden BOOLEAN NOT NULL DEFAULT false,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Slugs are unique by the table constraint. Names are also unique for this
+-- managed taxonomy so two admin entries cannot represent the same occasion.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_occasions_name_unique ON occasions (LOWER(name));
+
+-- Seed the taxonomy used by existing product data. This remains safe on every
+-- schema run and never overwrites an administrator's existing configuration.
+INSERT INTO occasions (slug, name, hidden, display_order)
+VALUES
+  ('wedding', 'Wedding', false, 1),
+  ('festive', 'Festive', false, 2),
+  ('daily-wear', 'Daily Wear', false, 3),
+  ('party', 'Party', false, 4)
+ON CONFLICT (slug) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS products (
   id VARCHAR(50) PRIMARY KEY,
   slug VARCHAR(200) UNIQUE NOT NULL,

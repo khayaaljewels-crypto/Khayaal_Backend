@@ -10,7 +10,7 @@ async function migrate() {
   console.log('Running schema migration...');
   await pool.query(sql);
   console.log(
-    'Migration complete: customers, addresses, orders, order_items, categories, collections, products, product_images are ready.'
+    'Migration complete: customers, addresses, orders, order_items, categories, collections, occasions, products, product_images are ready.'
   );
   await pool.end();
 }

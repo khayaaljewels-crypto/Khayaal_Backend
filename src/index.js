@@ -19,6 +19,7 @@ import productRoutes from './routes/products.js';
 import adminProductRoutes from './routes/adminProducts.js';
 import categoryRoutes, { adminCategoryRoutes } from './routes/categories.js';
 import collectionRoutes, { adminCollectionRoutes } from './routes/collections.js';
+import occasionRoutes, { adminOccasionRoutes } from './routes/occasions.js';
 import adminImportRoutes from './routes/adminImport.js';
 import { testConnection } from './db/pool.js';
 import { storageDriverName, isCloudinaryConfigured } from './services/storage/index.js';
@@ -236,6 +237,7 @@ app.use('/api/admin', productImageRoutes);
 app.use('/api/admin/products', adminProductRoutes);
 app.use('/api/admin/categories', adminCategoryRoutes);
 app.use('/api/admin/collections', adminCollectionRoutes);
+app.use('/api/admin/occasions', adminOccasionRoutes);
 app.use('/api/admin/import', adminImportRoutes);
 
 // Public catalog — no auth, top-level like /auth and /health (distinct from
@@ -243,6 +245,7 @@ app.use('/api/admin/import', adminImportRoutes);
 app.use('/products', productRoutes);
 app.use('/categories', categoryRoutes);
 app.use('/collections', collectionRoutes);
+app.use('/occasions', occasionRoutes);
 
 app.use('/api', customerRoutes);
 

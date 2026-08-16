@@ -103,8 +103,11 @@ export async function queryProducts({
     conditions.push(`p.color = ANY($${params.length})`);
   }
   if (occasion.length) {
-    params.push(occasion);
-    conditions.push(`p.occasion = ANY($${params.length})`);
+    // Older products may store "daily wear" while the managed taxonomy uses
+    // the URL-safe "daily-wear" slug. Normalize only for comparison, leaving
+    // the stored product value untouched.
+    params.push(occasion.map((value) => String(value).trim().toLowerCase().replace(/\\s+/g, '-')));
+    conditions.push(`REPLACE(LOWER(TRIM(p.occasion)), ' ', '-') = ANY($${params.length})`);
   }
   if (minPrice != null && minPrice !== '') {
     params.push(Number(minPrice));
