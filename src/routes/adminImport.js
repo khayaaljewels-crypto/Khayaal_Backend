@@ -36,11 +36,10 @@ async function upsertTaxonomy(table, items) {
   return { idBySlug, report };
 }
 
-// One-time migration: pushes the existing localStorage-shaped catalogue
-// (ProductsContext/CategoriesContext/CollectionsContext's exact export
-// shape) into the database. Upserts by slug/id so it's safe to re-run.
-// Reports per-item success/failure rather than all-or-nothing, since a
-// single dead image URL shouldn't block everything else from landing.
+// This endpoint is retained only for the legacy taxonomy migration. Product
+// imports are deliberately refused: the catalogue is admin-managed and no
+// external payload, frontend default, or synchronization may create or
+// overwrite product records.
 router.post(
   '/',
   asyncHandler(async (req, res) => {
@@ -52,13 +51,16 @@ router.post(
     }
 
     const { categories = [], collections = [], products = [] } = req.body;
+    if (products.length > 0) {
+      return res.status(410).json({
+        error: 'Product import is disabled. Create products only by saving them in Admin → Products → Add Product.',
+      });
+    }
 
     const categoryReport = await upsertTaxonomy('categories', categories);
     const collectionReport = await upsertTaxonomy('collections', collections);
 
-    // Products reference categories by slug and collections by name (the
-    // shape the frontend contexts already produce) — resolve both to the
-    // real ids just created/updated above.
+    // Kept for the response contract below; product imports are disabled.
     const collectionRows = await pool.query('SELECT id, name FROM collections');
     const collectionIdByName = {};
     for (const row of collectionRows.rows) collectionIdByName[row.name] = row.id;

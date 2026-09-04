@@ -215,7 +215,7 @@ function respondValidationError(res, errors) {
   });
 }
 
-// Shared by PUT /:id and the draft-finalize branch of POST / below — builds
+// Shared by PUT /:id — builds
 // and runs the UPDATE, then returns the fresh row. `currentName` is only
 // needed as the slugify() fallback when neither slug nor name is present in
 // the request body.
@@ -246,29 +246,6 @@ async function applyProductUpdate(id, currentName, body) {
   return getProductById(id);
 }
 
-// The admin form generates/receives a product id up front (see POST
-// /draft below) so ImageUploader has something real to attach uploaded
-// images to (product_images.product_id) before the product itself has been
-// saved. Draft rows always start unpublished, with a blank name and a slug
-// equal to their id — placeholder values, never shown anywhere public
-// (public /products routes only ever return is_published = true rows).
-router.post(
-  '/draft',
-  asyncHandler(async (req, res) => {
-    const id = generateId();
-
-    const result = await pool.query(
-      `INSERT INTO products (id, name, slug, is_published, created_at, updated_at)
-       VALUES ($1, '', $1, false, now(), now())
-       RETURNING *`,
-      [id]
-    );
-
-    const row = await getProductById(result.rows[0].id);
-    res.status(201).json({ product: serializeProduct(row, { includeCostPrice: true }) });
-  })
-);
-
 router.post(
   '/',
   asyncHandler(async (req, res) => {
@@ -283,18 +260,9 @@ router.post(
     }
 
     const { name } = req.body;
-    const id = req.body.id || generateId();
-
-    // Finalizing a draft (see POST /draft above): a row for this id may
-    // already exist — e.g. one product_images upload happened before Save
-    // was clicked — so update it in place instead of attempting a second
-    // INSERT, which would fail on the id/slug unique constraints.
-    const existing = await getProductById(id);
-    if (existing) {
-      const row = await applyProductUpdate(id, existing.name, req.body);
-      const images = await getImagesForProductIds([row.id], req);
-      return res.json({ product: serializeProduct(row, { images: images[row.id] ?? [], includeCostPrice: true }) });
-    }
+    // Create requests always make a fresh product. Updates are accepted only
+    // through PUT /:id, after an administrator explicitly selects a product.
+    const id = generateId();
 
     const slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
 
