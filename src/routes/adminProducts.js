@@ -1,7 +1,10 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { pool } from '../db/pool.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { slugify } from '../utils/slugify.js';
+import { storage } from '../services/storage/index.js';
+import { processImage, generateFilename } from '../services/imageProcessor.js';
 import {
   toArray,
   queryProducts,
@@ -12,6 +15,25 @@ import {
 
 const router = Router();
 router.use(requireAdmin);
+
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const createUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, callback) => {
+    if (!ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
+      return callback(new Error('Only JPEG, PNG, and WEBP images are allowed.'));
+    }
+    callback(null, true);
+  },
+});
+
+function uploadCreateImages(req, res, next) {
+  createUpload.array('images', 20)(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Image upload failed.' });
+    next();
+  });
+}
 
 function asyncHandler(fn) {
   return (req, res, next) => fn(req, res, next).catch(next);
@@ -246,9 +268,91 @@ async function applyProductUpdate(id, currentName, body) {
   return getProductById(id);
 }
 
+// A multipart create must be all-or-nothing from the administrator's point
+// of view. Database work is in one transaction; storage writes are removed
+// if Sharp, storage, SQL, or serialization fails before the response.
+async function createProductWithImages(req, body) {
+  const validationErrors = validateProductBody(body, { requireName: true });
+  if (validationErrors.length) return { validationErrors };
+
+  const id = generateId();
+  const slug = body.slug ? slugify(body.slug) : slugify(body.name);
+  const columns = ['id', 'slug'];
+  const values = [id, slug];
+  const placeholders = ['$1', '$2'];
+  for (const [jsField, column] of Object.entries(FIELD_MAP)) {
+    if (body[jsField] === undefined) continue;
+    columns.push(column);
+    values.push(serializeForColumn(column, body[jsField]));
+    placeholders.push(`$${values.length}${COLUMN_CASTS[column] ?? ''}`);
+  }
+
+  const savedPaths = [];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO products (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`,
+      values
+    );
+
+    const folder = String(req.body.folder || 'uncategorized');
+    for (let index = 0; index < req.files.length; index += 1) {
+      const file = req.files[index];
+      let optimized;
+      try {
+        optimized = await processImage(file.buffer);
+      } catch (err) {
+        err.message = `Could not process image "${file.originalname}": ${err.message}`;
+        throw err;
+      }
+      let imagePath;
+      try {
+        imagePath = await storage.save({
+          buffer: optimized,
+          filename: generateFilename(),
+          folder,
+        });
+      } catch (err) {
+        err.message = `Could not save image "${file.originalname}": ${err.message}`;
+        throw err;
+      }
+      savedPaths.push(imagePath);
+      await client.query(
+        `INSERT INTO product_images (product_id, image_path, is_thumbnail, display_order)
+         VALUES ($1, $2, $3, $4)`,
+        [id, imagePath, index === 0, index]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    await Promise.allSettled(savedPaths.map((imagePath) => storage.remove(imagePath)));
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  const row = await getProductById(id);
+  const images = await getImagesForProductIds([id], req);
+  return { product: serializeProduct(row, { images: images[id] ?? [], includeCostPrice: true }) };
+}
+
 router.post(
   '/',
+  uploadCreateImages,
   asyncHandler(async (req, res) => {
+    if (req.files?.length) {
+      let body;
+      try {
+        body = JSON.parse(req.body.product || '{}');
+      } catch {
+        return res.status(400).json({ error: 'Product data must be valid JSON.' });
+      }
+      const created = await createProductWithImages(req, body);
+      if (created.validationErrors) return respondValidationError(res, created.validationErrors);
+      return res.status(201).json(created);
+    }
     // Temporary debug logging (per request) — the incoming body and, if
     // present, exactly which validation rule(s) rejected it.
     console.log('[adminProducts] POST / — incoming body:', JSON.stringify(req.body));
