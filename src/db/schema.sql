@@ -212,6 +212,11 @@ CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_collection ON products(collection_id);
 CREATE INDEX IF NOT EXISTS idx_products_published ON products(is_published);
 CREATE INDEX IF NOT EXISTS idx_products_slug ON products(slug);
+-- These match the public catalogue's most common filter/sort paths. Partial
+-- indexes stay small and do not affect unpublished admin-only records.
+CREATE INDEX IF NOT EXISTS idx_products_published_created_at ON products(created_at DESC) WHERE is_published = true;
+CREATE INDEX IF NOT EXISTS idx_products_published_category_created_at ON products(category_id, created_at DESC) WHERE is_published = true;
+CREATE INDEX IF NOT EXISTS idx_products_published_collection_created_at ON products(collection_id, created_at DESC) WHERE is_published = true;
 
 CREATE TABLE IF NOT EXISTS product_images (
   id SERIAL PRIMARY KEY,
@@ -223,6 +228,7 @@ CREATE TABLE IF NOT EXISTS product_images (
 );
 
 CREATE INDEX IF NOT EXISTS idx_product_images_product_id ON product_images(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_images_product_display_order ON product_images(product_id, display_order, created_at);
 
 -- Added NOT VALID so this can't fail on rows already in product_images from
 -- before the products table existed — it only enforces the FK for rows

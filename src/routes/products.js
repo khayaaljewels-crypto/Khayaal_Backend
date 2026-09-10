@@ -10,6 +10,7 @@ import {
   getCompleteTheLook,
   getImagesForProductIds,
   serializeProduct,
+  serializeProductCard,
 } from './lib/productQuery.js';
 
 const router = Router();
@@ -27,11 +28,19 @@ function toBoolOrUndefined(value) {
   return undefined;
 }
 
+function setCatalogCache(res) {
+  // Catalog data is public and changes comparatively infrequently. A short
+  // browser lifetime avoids stale stock/product information, while shared
+  // caches can absorb repeat anonymous browsing traffic.
+  res.set('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
+}
+
 // Registered before /:slug below so these literal paths aren't swallowed by
 // the param route.
 router.get(
   '/facets',
   asyncHandler(async (_req, res) => {
+    setCatalogCache(res);
     res.json(await queryFacets({ onlyPublished: true }));
   })
 );
@@ -42,7 +51,10 @@ router.get(
     const ids = toArray(req.query.ids);
     if (!ids.length) return res.json({ products: [] });
     const rows = await getProductsByIds(ids, { onlyPublished: true });
-    const images = await getImagesForProductIds(rows.map((r) => r.id), req);
+    setCatalogCache(res);
+    const images = await getImagesForProductIds(rows.map((r) => r.id), req, { width: 640 });
+    // /by-ids is also used outside the Shop card grid. Keep its historical
+    // complete product shape; only its delivered image rendition is reduced.
     res.json({ products: rows.map((r) => serializeProduct(r, { images: images[r.id] ?? [] })) });
   })
 );
@@ -74,9 +86,10 @@ router.get(
       isTrending: toBoolOrUndefined(req.query.isTrending),
     });
 
-    const images = await getImagesForProductIds(rows.map((r) => r.id), req);
+    setCatalogCache(res);
+    const images = await getImagesForProductIds(rows.map((r) => r.id), req, { width: 640 });
     res.json({
-      products: rows.map((r) => serializeProduct(r, { images: images[r.id] ?? [] })),
+      products: rows.map((r) => serializeProductCard(r, { images: images[r.id] ?? [] })),
       meta: { page: p, pageSize: ps, total },
     });
   })
@@ -95,18 +108,24 @@ router.get(
       (await getPublicProductById(idOrSlug, { onlyPublished: true }));
     if (!row) return res.status(404).json({ error: 'Product not found.' });
 
+    setCatalogCache(res);
+
     const [related, completeTheLook] = await Promise.all([
       getRelatedProducts(row),
       getCompleteTheLook(row),
     ]);
-
-    const allRows = [row, ...related, ...completeTheLook];
-    const images = await getImagesForProductIds(allRows.map((r) => r.id), req);
+    // The selected item is the LCP candidate. Related-card images are still
+    // delivered through the same endpoint, but at card size rather than the
+    // 2000px upload size.
+    const [images, relatedImages] = await Promise.all([
+      getImagesForProductIds([row.id], req, { width: 1440 }),
+      getImagesForProductIds([...related, ...completeTheLook].map((r) => r.id), req, { width: 640 }),
+    ]);
 
     res.json({
       product: serializeProduct(row, { images: images[row.id] ?? [] }),
-      related: related.map((r) => serializeProduct(r, { images: images[r.id] ?? [] })),
-      completeTheLook: completeTheLook.map((r) => serializeProduct(r, { images: images[r.id] ?? [] })),
+      related: related.map((r) => serializeProduct(r, { images: relatedImages[r.id] ?? [] })),
+      completeTheLook: completeTheLook.map((r) => serializeProduct(r, { images: relatedImages[r.id] ?? [] })),
     });
   })
 );

@@ -16,6 +16,20 @@ const PRODUCT_SELECT = `
   col.id AS collection_id_out, col.slug AS collection_slug, col.name AS collection_name
 `;
 
+// Listing cards do not render long descriptions, JSON specifications,
+// variants, care text, or internal cost. Selecting them for every card made
+// the catalogue response needlessly large. Detail/admin lookups still use
+// PRODUCT_SELECT above, so their existing response contract is unchanged.
+const PRODUCT_CARD_SELECT = `
+  p.id, p.slug, p.name, p.sku, p.brand, p.category_id, p.collection_id,
+  p.occasion, p.price, p.old_price, p.stock_qty, p.material, p.stone,
+  p.color, p.rating, p.review_count, p.is_best_seller, p.is_new_arrival,
+  p.is_featured, p.is_trending, p.is_coming_soon, p.is_published,
+  p.created_at, p.updated_at,
+  c.id AS category_id_out, c.slug AS category_slug, c.name AS category_name,
+  col.id AS collection_id_out, col.slug AS collection_slug, col.name AS collection_name
+`;
+
 const PRODUCT_JOINS = `
   FROM products p
   LEFT JOIN categories c ON c.id = p.category_id
@@ -55,6 +69,7 @@ export async function queryProducts({
   isNewArrival,
   isFeatured,
   isTrending,
+  detail = false,
 } = {}) {
   const conditions = [];
   const params = [];
@@ -134,7 +149,7 @@ export async function queryProducts({
   const offsetIdx = params.length;
 
   const result = await pool.query(
-    `SELECT ${PRODUCT_SELECT}, COUNT(*) OVER() AS total_count
+    `SELECT ${detail ? PRODUCT_SELECT : PRODUCT_CARD_SELECT}, COUNT(*) OVER() AS total_count
      ${PRODUCT_JOINS}
      ${where}
      ORDER BY ${orderBy}
@@ -206,10 +221,10 @@ export async function getProductsByIds(ids, { onlyPublished = true } = {}) {
   return result.rows;
 }
 
-export async function getRelatedProducts(product, limit = 8) {
+export async function getRelatedProducts(product, limit = 8, { card = false } = {}) {
   if (!product.category_id) return [];
   const result = await pool.query(
-    `SELECT ${PRODUCT_SELECT} ${PRODUCT_JOINS}
+    `SELECT ${card ? PRODUCT_CARD_SELECT : PRODUCT_SELECT} ${PRODUCT_JOINS}
      WHERE p.category_id = $1 AND p.id != $2 AND p.is_published = true
      ORDER BY p.created_at DESC LIMIT $3`,
     [product.category_id, product.id, limit]
@@ -217,10 +232,10 @@ export async function getRelatedProducts(product, limit = 8) {
   return result.rows;
 }
 
-export async function getCompleteTheLook(product, limit = 4) {
+export async function getCompleteTheLook(product, limit = 4, { card = false } = {}) {
   if (!product.collection_id) return [];
   const result = await pool.query(
-    `SELECT ${PRODUCT_SELECT} ${PRODUCT_JOINS}
+    `SELECT ${card ? PRODUCT_CARD_SELECT : PRODUCT_SELECT} ${PRODUCT_JOINS}
      WHERE p.collection_id = $1 AND p.category_id IS DISTINCT FROM $2 AND p.id != $3 AND p.is_published = true
      ORDER BY p.created_at DESC LIMIT $4`,
     [product.collection_id, product.category_id, product.id, limit]
@@ -230,18 +245,60 @@ export async function getCompleteTheLook(product, limit = 4) {
 
 // Batch-loads gallery images for a set of product ids in one round trip
 // (avoids N+1 queries for list endpoints), returning { [productId]: url[] }.
-export async function getImagesForProductIds(ids, req) {
+export async function getImagesForProductIds(ids, req, { width } = {}) {
   if (!ids.length) return {};
   const result = await pool.query(
-    'SELECT * FROM product_images WHERE product_id = ANY($1) ORDER BY display_order ASC, created_at ASC',
+    'SELECT product_id, image_path FROM product_images WHERE product_id = ANY($1) ORDER BY display_order ASC, created_at ASC',
     [ids]
   );
   const origin = `${req.protocol}://${req.get('host')}`;
   const grouped = {};
   for (const row of result.rows) {
-    (grouped[row.product_id] ??= []).push(storage.getUrl(row.image_path, { requestOrigin: origin }));
+    (grouped[row.product_id] ??= []).push(storage.getUrl(row.image_path, { requestOrigin: origin, width }));
   }
   return grouped;
+}
+
+// Public listing payload. Keep this deliberately separate from the full
+// product serializer: adding a new field to the detail model must not quietly
+// make every Shop response heavier again.
+export function serializeProductCard(row, { images = [] } = {}) {
+  const price = Number(row.price);
+  const oldPrice = row.old_price != null ? Number(row.old_price) : null;
+  const stockQty = Number(row.stock_qty ?? 0);
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    sku: row.sku,
+    brand: row.brand,
+    category: row.category_id_out
+      ? { id: row.category_id_out, slug: row.category_slug, name: row.category_name }
+      : null,
+    collection: row.collection_id_out
+      ? { id: row.collection_id_out, slug: row.collection_slug, name: row.collection_name }
+      : null,
+    occasion: row.occasion,
+    price,
+    oldPrice,
+    stockQty,
+    inStock: stockQty > 0,
+    lowStock: stockQty > 0 && stockQty <= 5,
+    discount: computeDiscount(price, oldPrice),
+    material: row.material,
+    stone: row.stone,
+    color: row.color,
+    rating: Number(row.rating ?? 0),
+    reviewCount: Number(row.review_count ?? 0),
+    isBestSeller: row.is_best_seller,
+    isNewArrival: row.is_new_arrival,
+    isFeatured: row.is_featured,
+    isTrending: row.is_trending,
+    isComingSoon: row.is_coming_soon,
+    images,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 function computeDiscount(price, oldPrice) {

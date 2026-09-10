@@ -187,7 +187,14 @@ import process from 'process';
 
 app.use(
   '/uploads',
-  express.static(path.join(process.cwd(), 'uploads'))
+  express.static(path.join(process.cwd(), 'uploads'), {
+    // Product files can be replaced in place, so they cannot safely receive
+    // an immutable year-long cache lifetime. ETags still make repeat visits
+    // cheap, while this bounds the time a replacement can remain stale.
+    maxAge: '1h',
+    etag: true,
+    lastModified: true,
+  })
 );
 
 /* ------------------------------------------

@@ -66,6 +66,10 @@ router.get(
       sort,
       onlyPublished: false,
       stockStatus: stock,
+      // Admin list consumers may edit directly from the returned records.
+      // Preserve their full payload; the public Shop route uses the compact
+      // card projection instead.
+      detail: true,
     });
 
     const images = await getImagesForProductIds(rows.map((r) => r.id), req);

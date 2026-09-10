@@ -54,9 +54,23 @@ async function remove(publicId) {
 // string templating via the SDK, no network call. requestOrigin is ignored
 // on purpose: Cloudinary URLs are already absolute CDN URLs, independent of
 // whichever host the browser used to reach this API.
-function getUrl(publicId) {
+function getUrl(publicId, { width, height, requestOrigin: _requestOrigin } = {}) {
   if (!publicId) return '';
-  return cloudinary.url(publicId, { secure: true });
+  // `image_path` has always been an opaque Cloudinary public id.  Applying
+  // transformations only at delivery time keeps old JPG/PNG records working,
+  // while the CDN sends an appropriately sized modern asset for the context
+  // where it is rendered. New uploads are already normalised to WebP by
+  // imageProcessor; f_auto also makes legacy assets efficient for browsers
+  // that support AVIF.
+  return cloudinary.url(publicId, {
+    secure: true,
+    resource_type: 'image',
+    type: 'upload',
+    fetch_format: 'auto',
+    quality: 'auto:good',
+    ...(width ? { width, crop: 'limit' } : {}),
+    ...(height ? { height, crop: 'limit' } : {}),
+  });
 }
 
 export const cloudinaryDriver = { save, remove, getUrl, replace };

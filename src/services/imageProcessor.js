@@ -11,7 +11,10 @@ export async function processImage(buffer) {
   return sharp(buffer)
     .rotate()
     .resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: 'inside', withoutEnlargement: true })
-    .webp({ quality: WEBP_QUALITY })
+    // Re-encoding removes source metadata by default. Effort 5 is a good
+    // upload-time trade-off for product photography: materially smaller files
+    // without making an admin wait for the much slower maximum setting.
+    .webp({ quality: WEBP_QUALITY, effort: 5, smartSubsample: true })
     .toBuffer();
 }
 
