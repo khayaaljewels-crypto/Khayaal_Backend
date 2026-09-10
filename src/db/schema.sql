@@ -201,6 +201,13 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- CREATE TABLE IF NOT EXISTS does not add columns to an existing Neon
+-- products table. Keep this additive migration alongside the canonical table
+-- definition so previously deployed catalogues gain per-product descriptions
+-- without touching any existing product data. NULL remains valid for legacy
+-- products that were created before descriptions were collected.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_collection ON products(collection_id);
 CREATE INDEX IF NOT EXISTS idx_products_published ON products(is_published);

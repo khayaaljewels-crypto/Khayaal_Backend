@@ -223,6 +223,13 @@ function validateProductBody(body, { requireName = false } = {}) {
     errors.push({ field: 'variants', message: 'variants must be an array.' });
   }
 
+  // A description belongs to the product row itself. Keep it optional so
+  // legacy products with no description remain valid, while allowing an
+  // administrator to explicitly clear a previously saved description.
+  if (body.description !== undefined && body.description !== null && typeof body.description !== 'string') {
+    errors.push({ field: 'description', message: 'description must be a string or null.' });
+  }
+
   return errors;
 }
 
