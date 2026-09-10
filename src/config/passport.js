@@ -42,11 +42,17 @@ if (isGoogleAuthConfigured) {
         // back to for a signed-in customer account.
         let existing;
         try {
-          // Email is the unique identifier per spec — look up by email first.
-          existing = await pool.query('SELECT * FROM customers WHERE email = $1', [email]);
+          // Google id is the durable identity; email supports lookup of a
+          // legacy record without ever creating a duplicate customer.
+          existing = await pool.query(
+            `SELECT * FROM customers
+             WHERE google_id = $1 OR email = $2
+             ORDER BY CASE WHEN google_id = $1 THEN 0 ELSE 1 END`,
+            [googleId, email]
+          );
         } catch (err) {
           console.error(`[auth] Google OAuth: customer lookup failed for email=${email}`);
-          console.error('[auth] SQL: SELECT * FROM customers WHERE email = $1', [email]);
+          console.error('[auth] SQL: SELECT * FROM customers WHERE google_id = $1 OR email = $2', [googleId, email]);
           console.error('[auth] Error:', err.message || err.code, err.stack);
           err.status = 503;
           err.message = `Database unavailable during Google login (customer lookup): ${err.message || err.code || 'connection failed'}`;
@@ -55,13 +61,20 @@ if (isGoogleAuthConfigured) {
 
         let customer;
         try {
+          // Never merge two records automatically: it could transfer a
+          // customer's order history to a different account.
+          if (existing.rows.length > 1 || (existing.rows[0] && existing.rows[0].google_id !== googleId)) {
+            const conflict = new Error('This Google account is linked to a different customer record.');
+            conflict.status = 409;
+            return done(conflict);
+          }
           if (existing.rows.length > 0) {
             const updated = await pool.query(
               `UPDATE customers
-               SET google_id = $1, full_name = $2, profile_image = $3, last_login = now(), updated_at = now()
-               WHERE email = $4
+               SET full_name = $1, profile_image = $2, last_login = now(), updated_at = now()
+               WHERE id = $3
                RETURNING *`,
-              [googleId, fullName, profileImage, email]
+              [fullName, profileImage, existing.rows[0].id]
             );
             customer = updated.rows[0];
           } else {
