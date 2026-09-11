@@ -5,6 +5,9 @@ saved addresses, and admin product image uploads. This repository is the **backe
 it deploys independently to any Node.js host and is called over HTTP by a separate frontend
 repository (React/Vite, deployed to Vercel).
 
+For the required production `www` API proxy, Google callback URL, cookie origin, and safe
+Render diagnostics, see [Production customer authentication](docs/production-auth.md).
+
 > The product/category catalog, cart, and wishlist are **not** handled here — they live
 > entirely in the frontend's `localStorage`. This backend only owns customer auth, orders,
 > addresses, and image uploads.

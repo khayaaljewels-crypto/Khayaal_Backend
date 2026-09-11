@@ -3,26 +3,34 @@ import { pool } from '../db/pool.js';
 
 export const COOKIE_NAME = 'khayaal_token';
 
+// Enable only while diagnosing a live authentication incident (for example in
+// Render: AUTH_DEBUG=true). Authentication runs on every request, so this is
+// deliberately opt-in and never logs a bearer token.
+const authDebugEnabled = process.env.AUTH_DEBUG === 'true';
+
+function authDebug(req, message, extra = {}) {
+  if (!authDebugEnabled) return;
+  console.log('[AUTH DEBUG]', {
+    method: req.method,
+    path: req.originalUrl,
+    origin: req.headers.origin,
+    host: req.headers.host,
+    secure: req.secure,
+    cookiePresent: Boolean(req.cookies?.[COOKIE_NAME]),
+    message,
+    ...extra,
+  });
+}
+
 export function issueToken(customer) {
   return jwt.sign({ customerId: customer.id, email: customer.email }, process.env.JWT_SECRET, {
     expiresIn: '30d',
   });
 }
 
-// SameSite=None;Secure is required for the cookie to be sent at all when the
-// frontend and backend are on different domains (Vercel + Render) — true for
-// both desktop and mobile browsers, since this is a first-party cookie set
-// via a top-level redirect (see routes/auth.js), not a third-party/iframe
-// context, so it isn't affected by Safari/Chrome's third-party cookie
-// blocking.
-//
-// Derived from req.secure (not NODE_ENV): index.js sets `trust proxy`, so
-// Express reads Render's `X-Forwarded-Proto: https` correctly and req.secure
-// is accurate regardless of whether NODE_ENV happens to be configured on the
-// host. Only false for genuine local http://localhost dev, where a `Secure`
-// cookie would be silently refused by the browser and `SameSite=None`
-// without `Secure` is rejected outright — falling back to Lax there is what
-// actually lets the cookie be set at all.
+// Render is behind a TLS proxy. index.js enables trust proxy, so req.secure
+// correctly determines whether this response is HTTPS. Local HTTP uses Lax,
+// because browsers reject SameSite=None cookies that are not Secure.
 function cookieOptions(req) {
   const secure = Boolean(req.secure);
   return {
@@ -35,56 +43,53 @@ function cookieOptions(req) {
 
 export function setAuthCookie(req, res, token) {
   const options = cookieOptions(req);
-  // Mobile-vs-desktop redirect-loop reports need to confirm exactly what
-  // attributes actually went out on Set-Cookie for a given device, without
-  // guessing from req.secure alone — logged here, at the point of the real
-  // res.cookie() call, not derived separately.
-  console.log(
-    `[auth] setAuthCookie — secure=${options.secure} sameSite=${options.sameSite} origin=${req.headers.origin ?? '(none)'} ua="${req.headers['user-agent'] ?? '(none)'}"`
-  );
+  authDebug(req, 'issuing auth cookie', {
+    cookieSecure: options.secure,
+    cookieSameSite: options.sameSite,
+  });
   res.cookie(COOKIE_NAME, token, { ...options, maxAge: 30 * 24 * 60 * 60 * 1000 });
 }
 
 export function clearAuthCookie(req, res) {
-  // Must be called with the exact same attributes the cookie was set with —
-  // otherwise the browser treats it as a different cookie and never clears
-  // the real one, leaving the customer silently still "logged in".
+  // The attributes must match the cookie being removed, otherwise browsers
+  // treat the clearing response as a different cookie.
   res.clearCookie(COOKIE_NAME, cookieOptions(req));
 }
 
 // Attaches req.customer if a valid token cookie is present; does not reject
-// the request either way. Use `requireAuth` on routes that must be protected.
+// the request either way. Use requireAuth on routes that must be protected.
 export async function attachCustomer(req, _res, next) {
   const token = req.cookies?.[COOKIE_NAME];
-
-  // Enough to diagnose "cookie not arriving" / "cross-site auth failing"
-  // reports (which browser/origin, whether a cookie made it to the server
-  // at all) without ever printing the token itself — it's a 30-day bearer
-  // credential, and logs (Render's dashboard, log drains) are readable by
-  // more people than just this admin.
-  console.log(
-    `[auth] ${req.method} ${req.originalUrl} — origin=${req.headers.origin ?? '(none)'} secure=${req.secure} cookiePresent=${Boolean(token)} ua="${req.headers['user-agent'] ?? '(none)'}"`
-  );
+  authDebug(req, 'authentication middleware entered');
 
   if (!token) return next();
 
   try {
+    authDebug(req, 'JWT verification started');
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const result = await pool.query('SELECT * FROM customers WHERE id = $1', [payload.customerId]);
     if (result.rows[0] && result.rows[0].status !== 'disabled') {
       req.customer = result.rows[0];
+      authDebug(req, 'JWT verification successful');
+    } else {
+      authDebug(req, 'JWT verified but customer is unavailable', {
+        customerFound: Boolean(result.rows[0]),
+        customerDisabled: result.rows[0]?.status === 'disabled',
+      });
     }
   } catch (err) {
-    // Invalid/expired token, or the DB briefly unreachable — treat the
-    // request as signed-out rather than failing it outright.
-    console.warn(`[auth] attachCustomer: session not resolved for ${req.method} ${req.originalUrl} — ${err.message || err.code}`);
+    // Invalid/expired JWT or a database failure both leave the request
+    // unauthenticated. Do not expose operational details to the client.
+    if (authDebugEnabled) {
+      console.error('[AUTH DEBUG] JWT verification failed:', err.message || err.code);
+    }
   }
 
   next();
 }
 
-// A customer can only ever access their own data — every protected route
-// reads req.customer.id, never a customer id supplied by the client.
+// A customer can only access their own data; protected routes use
+// req.customer.id, never a customer id supplied by the client.
 export function requireAuth(req, res, next) {
   if (!req.customer) return res.status(401).json({ error: 'Not signed in.' });
   next();
