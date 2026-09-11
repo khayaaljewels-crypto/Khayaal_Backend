@@ -38,7 +38,7 @@ DATABASE_URL=<production database URL>
 
 Add `https://www.khayaalofficial.in/api/auth/google/callback` to the Google OAuth client's authorized redirect URIs. Retain both `khayaalofficial.in` and `www.khayaalofficial.in` in Firebase Authentication authorized domains; the customer flow itself uses the Google OAuth client above.
 
-Render must serve HTTPS with `trust proxy` enabled (already configured in `src/index.js`). The callback then emits an HttpOnly, `Secure; SameSite=None; Path=/` cookie for `www.khayaalofficial.in` through the proxy.
+Render must serve HTTPS with `trust proxy` enabled (already configured in `src/index.js`). The callback then emits an HttpOnly, `Secure; SameSite=Lax; Path=/` cookie with **no `Domain` attribute**. Because the browser receives the callback response at `www.khayaalofficial.in`, this makes `khayaal_token` a host-only cookie for that public frontend host.
 
 ## Short-lived diagnostics
 

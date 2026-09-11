@@ -29,14 +29,16 @@ export function issueToken(customer) {
 }
 
 // Render is behind a TLS proxy. index.js enables trust proxy, so req.secure
-// correctly determines whether this response is HTTPS. Local HTTP uses Lax,
-// because browsers reject SameSite=None cookies that are not Secure.
+// correctly determines whether this response is HTTPS. In production the
+// callback is served to the browser through the HTTPS frontend origin, even
+// though Vercel forwards it to Render. Keep the cookie same-site: it is a
+// host-only cookie for that frontend origin, not a cross-site Render cookie.
 function cookieOptions(req) {
-  const secure = Boolean(req.secure);
+  const secure = process.env.NODE_ENV === 'production' || Boolean(req.secure);
   return {
     httpOnly: true,
     secure,
-    sameSite: secure ? 'none' : 'lax',
+    sameSite: 'lax',
     path: '/',
   };
 }

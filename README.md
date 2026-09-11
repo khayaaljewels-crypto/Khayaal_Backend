@@ -94,9 +94,9 @@ Node.js hosting platform (a PaaS, a container host, a VPS, etc.):
 3. Set all the environment variables listed above in your platform's dashboard/config, in particular:
    - `NODE_ENV=production`
    - `DATABASE_URL` → your Neon connection string
-   - `FRONTEND_URL` → your deployed Vercel URL (exact origin, e.g. `https://khayaal-jewels.vercel.app`, no trailing slash)
+   - `FRONTEND_URL` → `https://www.khayaalofficial.in` (the canonical production origin; no trailing slash)
    - `PORT` → most hosts set this automatically; the app already reads `process.env.PORT`
-   - `GOOGLE_CALLBACK_URL` → `https://<your-deployed-domain>/auth/google/callback`, and add
+   - `GOOGLE_CALLBACK_URL` → `https://www.khayaalofficial.in/api/auth/google/callback`, and add
      that same URL to the Google Cloud OAuth client's "Authorized redirect URIs"
 4. Run the migration once against the Neon database (`npm run migrate`, pointed at the same
    `DATABASE_URL` your host uses) before the first deploy that needs it.
