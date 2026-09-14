@@ -3,6 +3,7 @@ import { pool } from '../../db/pool.js';
 import { requireAdmin } from '../../middleware/requireAdmin.js';
 import { slugify } from '../../utils/slugify.js';
 import { storage } from '../../services/storage/index.js';
+import { ALL_OCCASIONS_NAME, ALL_OCCASIONS_SLUG } from '../../utils/occasions.js';
 
 function asyncHandler(fn) {
   return (req, res, next) => fn(req, res, next).catch(next);
@@ -63,7 +64,27 @@ export function createTaxonomyRoutes(table) {
     '/',
     asyncHandler(async (req, res) => {
       const result = await pool.query(`SELECT * FROM ${table} ORDER BY display_order ASC, name ASC`);
-      res.json({ [table]: result.rows.map((row) => serialize(row, req)) });
+      const rows = result.rows.map((row) => serialize(row, req));
+
+      // This virtual option is deliberately admin-only. It is a product
+      // assignment and must not become a customer-facing occasion or a row
+      // that can be edited/deleted through the taxonomy CRUD routes.
+      if (table === 'occasions') {
+        rows.push({
+          id: ALL_OCCASIONS_SLUG,
+          slug: ALL_OCCASIONS_SLUG,
+          name: ALL_OCCASIONS_NAME,
+          description: 'Makes a product available under every occasion.',
+          image: null,
+          hidden: false,
+          displayOrder: Number.MAX_SAFE_INTEGER,
+          isAllOccasions: true,
+          createdAt: null,
+          updatedAt: null,
+        });
+      }
+
+      res.json({ [table]: rows });
     })
   );
 

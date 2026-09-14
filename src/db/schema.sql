@@ -137,6 +137,10 @@ CREATE TABLE IF NOT EXISTS collections (
 -- Occasions are a managed taxonomy, like categories and collections. Product
 -- rows deliberately continue to store the occasion slug as text so existing
 -- catalogue data and the GET /products?occasion=... filter remain compatible.
+-- Products suitable for every occasion use the reserved value
+-- "all-occasions" in this column. It is intentionally not an occasions row:
+-- the catalogue query includes it for every taxonomy occasion, including
+-- occasions created in the future, without duplicating product records.
 CREATE TABLE IF NOT EXISTS occasions (
   id SERIAL PRIMARY KEY,
   slug VARCHAR(150) UNIQUE NOT NULL,

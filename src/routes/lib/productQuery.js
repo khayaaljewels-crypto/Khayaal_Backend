@@ -1,5 +1,6 @@
 import { pool } from '../../db/pool.js';
 import { storage } from '../../services/storage/index.js';
+import { ALL_OCCASIONS_SLUG } from '../../utils/occasions.js';
 
 const SORTS = {
   newest: 'p.created_at DESC',
@@ -122,7 +123,14 @@ export async function queryProducts({
     // the URL-safe "daily-wear" slug. Normalize only for comparison, leaving
     // the stored product value untouched.
     params.push(occasion.map((value) => String(value).trim().toLowerCase().replace(/\\s+/g, '-')));
-    conditions.push(`REPLACE(LOWER(TRIM(p.occasion)), ' ', '-') = ANY($${params.length})`);
+    const occasionParam = params.length;
+    // `all-occasions` is a reserved product assignment, rather than a row
+    // in the occasions taxonomy. Therefore it matches every specific
+    // occasion filter, including occasions created after the product.
+    params.push(ALL_OCCASIONS_SLUG);
+    conditions.push(
+      `(REPLACE(LOWER(TRIM(p.occasion)), ' ', '-') = ANY($${occasionParam}) OR LOWER(TRIM(p.occasion)) = $${params.length})`
+    );
   }
   if (minPrice != null && minPrice !== '') {
     params.push(Number(minPrice));
@@ -169,9 +177,12 @@ export async function queryFacets({ onlyPublished = true } = {}) {
       ARRAY_REMOVE(ARRAY_AGG(DISTINCT material), NULL) AS materials,
       ARRAY_REMOVE(ARRAY_AGG(DISTINCT stone), NULL) AS stones,
       ARRAY_REMOVE(ARRAY_AGG(DISTINCT color), NULL) AS colors,
-      ARRAY_REMOVE(ARRAY_AGG(DISTINCT occasion), NULL) AS occasions
+      ARRAY_REMOVE(
+        ARRAY_AGG(DISTINCT occasion) FILTER (WHERE LOWER(TRIM(occasion)) <> $1),
+        NULL
+      ) AS occasions
     FROM products ${where}
-  `);
+  `, [ALL_OCCASIONS_SLUG]);
   const row = result.rows[0];
   return {
     priceBounds: { min: Number(row.min_price ?? 0), max: Number(row.max_price ?? 0) },

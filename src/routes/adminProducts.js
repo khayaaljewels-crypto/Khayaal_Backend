@@ -5,6 +5,7 @@ import { requireAdmin } from '../middleware/requireAdmin.js';
 import { slugify } from '../utils/slugify.js';
 import { storage } from '../services/storage/index.js';
 import { processImage, generateFilename } from '../services/imageProcessor.js';
+import { normalizeAllOccasions } from '../utils/occasions.js';
 import {
   toArray,
   queryProducts,
@@ -140,6 +141,7 @@ const COLUMN_CASTS = { tags: '::text[]', specs: '::jsonb', variants: '::jsonb', 
 // aren't affected — `pg` already JSON.stringify()s those by default — only
 // arrays bound for a jsonb column need to be stringified explicitly here.
 function serializeForColumn(column, value) {
+  if (column === 'occasion') return normalizeAllOccasions(value);
   if (COLUMN_CASTS[column] === '::jsonb' && value !== null) {
     return JSON.stringify(value);
   }
