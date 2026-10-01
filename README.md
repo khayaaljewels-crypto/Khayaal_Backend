@@ -5,8 +5,8 @@ saved addresses, and admin product image uploads. This repository is the **backe
 it deploys independently to any Node.js host and is called over HTTP by a separate frontend
 repository (React/Vite, deployed to Vercel).
 
-For the required production `www` API proxy, Google callback URL, cookie origin, and safe
-Render diagnostics, see [Production customer authentication](docs/production-auth.md).
+For the production Google callback URL, cookie behavior, and safe Render diagnostics, see
+[Production customer authentication](docs/production-auth.md).
 
 > The product/category catalog, cart, and wishlist are **not** handled here — they live
 > entirely in the frontend's `localStorage`. This backend only owns customer auth, orders,
@@ -96,8 +96,8 @@ Node.js hosting platform (a PaaS, a container host, a VPS, etc.):
    - `DATABASE_URL` → your Neon connection string
    - `FRONTEND_URL` → `https://www.khayaalofficial.in` (the canonical production origin; no trailing slash)
    - `PORT` → most hosts set this automatically; the app already reads `process.env.PORT`
-   - `GOOGLE_CALLBACK_URL` → `https://www.khayaalofficial.in/api/auth/google/callback`, and add
-     that same URL to the Google Cloud OAuth client's "Authorized redirect URIs"
+   - `GOOGLE_CALLBACK_URL` → `https://khayaal-backend.onrender.com/auth/google/callback`, and add
+     that exact URL to the Google Cloud OAuth client's "Authorized redirect URIs"
 4. Run the migration once against the Neon database (`npm run migrate`, pointed at the same
    `DATABASE_URL` your host uses) before the first deploy that needs it.
 5. Point the frontend API base URL at this backend's deployed URL.
