@@ -29,16 +29,18 @@ export function issueToken(customer) {
 }
 
 // Render is behind a TLS proxy. index.js enables trust proxy, so req.secure
-// correctly determines whether this response is HTTPS. In production the
-// callback is served to the browser through the HTTPS frontend origin, even
-// though Vercel forwards it to Render. Keep the cookie same-site: it is a
-// host-only cookie for that frontend origin, not a cross-site Render cookie.
+// correctly determines whether this response is HTTPS. With direct browser
+// requests from khayaalofficial.in to onrender.com, the cookie is cross-site
+// and must use SameSite=None; Secure in production. It remains host-only for
+// the Render API domain. Browsers that block third-party cookies may still
+// prevent this direct-cookie auth flow; a same-site API proxy is needed for
+// reliable cookie auth in those browsers.
 function cookieOptions(req) {
   const secure = process.env.NODE_ENV === 'production' || Boolean(req.secure);
   return {
     httpOnly: true,
     secure,
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     path: '/',
   };
 }

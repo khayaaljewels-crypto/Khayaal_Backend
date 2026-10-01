@@ -144,10 +144,9 @@ app.use(
       "X-Admin-Key",
     ],
 
-    // Lets browsers cache a preflight's result instead of re-sending an
-    // OPTIONS request before every single GET (the frontend's apiClient
-    // sends Content-Type: application/json even on GETs, which forces a
-    // preflight on every request otherwise).
+    // Lets browsers cache preflight results for requests with non-simple
+    // headers (such as the admin Authorization header) instead of repeating
+    // OPTIONS requests while navigating the admin application.
     maxAge: 86400,
   })
 );

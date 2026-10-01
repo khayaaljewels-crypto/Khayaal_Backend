@@ -54,6 +54,10 @@ export function createTaxonomyRoutes(table) {
       const result = await pool.query(
         `SELECT * FROM ${table} WHERE hidden = false ORDER BY display_order ASC, name ASC`
       );
+      // Public taxonomy changes infrequently. Let browsers and the deployment
+      // edge reuse this response across page loads instead of re-querying the
+      // database for every visitor refresh.
+      res.set('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
       res.json({ [table]: result.rows.map((row) => serialize(row, req)) });
     })
   );

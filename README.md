@@ -42,7 +42,7 @@ See `.env.example` for the full list with detailed explanations. Summary:
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_CALLBACK_URL` | Google Cloud OAuth client (not Firebase) |
 | `FRONTEND_URL` / `FRONTEND_URL_HTTP` | Allowed CORS origin(s) — the deployed frontend's URL(s) |
 | `PORT` | Port to listen on — most hosting platforms set this automatically |
-| `NODE_ENV` | Must be `production` in production — flips auth cookies to `secure` + `sameSite=none`, required whenever the frontend (Vercel) and backend live on different domains |
+| `NODE_ENV` | Must be `production` in production; enables `Secure; SameSite=None` cookies for direct cross-site API requests (third-party cookie blocking can still apply) |
 | `ADMIN_API_KEY` | Interim key gating `/api/admin/customers` until real Firebase-Admin-SDK verification is wired up |
 
 The server logs a clear warning on startup listing any of the required vars
@@ -100,7 +100,7 @@ Node.js hosting platform (a PaaS, a container host, a VPS, etc.):
      that same URL to the Google Cloud OAuth client's "Authorized redirect URIs"
 4. Run the migration once against the Neon database (`npm run migrate`, pointed at the same
    `DATABASE_URL` your host uses) before the first deploy that needs it.
-5. Point the frontend's `VITE_API_URL` (in Vercel's environment variables) at this backend's
+5. Point the frontend API base URL at this backend's deployed URL.
    deployed URL.
 
 ## API Routes
