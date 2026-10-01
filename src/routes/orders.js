@@ -87,8 +87,14 @@ router.post('/', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const seqResult = await client.query("SELECT 'KH' || LPAD(nextval('order_number_seq')::text, 4, '0') AS order_number");
-    const orderNumber = seqResult.rows[0].order_number;
+    // Serialize order-number allocation per customer. Locking the customer row
+    // prevents two concurrent checkouts from observing the same order count.
+    await client.query('SELECT id FROM customers WHERE id = $1 FOR UPDATE', [req.customer.id]);
+    const countResult = await client.query(
+      'SELECT COUNT(*)::int AS order_count FROM orders WHERE customer_id = $1',
+      [req.customer.id]
+    );
+    const orderNumber = `KH-${req.customer.id}-${String(countResult.rows[0].order_count + 1).padStart(3, '0')}`;
 
     const orderResult = await client.query(
       `INSERT INTO orders
