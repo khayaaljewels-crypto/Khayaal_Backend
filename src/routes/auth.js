@@ -4,6 +4,11 @@ import passport, { isGoogleAuthConfigured } from '../config/passport.js';
 import { issueToken, setAuthCookie, clearAuthCookie, requireAuth } from '../middleware/auth.js';
 
 const router = Router();
+const authDebugEnabled = process.env.AUTH_DEBUG === 'true';
+
+function authDebug(message, details = {}) {
+  if (authDebugEnabled) console.log('[AUTH DEBUG]', message, details);
+}
 
 function requireGoogleConfigured(req, res, next) {
   if (!isGoogleAuthConfigured) {
@@ -52,6 +57,11 @@ router.get(
     if (!process.env.JWT_SECRET) {
       return res.status(503).json({ error: 'Google sign-in is not configured yet.' });
     }
+    authDebug('GOOGLE AUTH START', {
+      callbackConfigured: Boolean(process.env.GOOGLE_CALLBACK_URL),
+      frontendConfigured: Boolean(process.env.FRONTEND_URL),
+      returnTo: requestedPath(req.query.returnTo),
+    });
     return passport.authenticate('google', {
       scope: ['profile', 'email'],
       session: false,
@@ -69,50 +79,58 @@ router.get(
 // here — this route is a full-page browser navigation target, so a JSON
 // response looks like a broken/blank page, not a controlled failure.
 router.get('/google/callback', requireGoogleConfigured, (req, res) => {
-  const ua = req.headers['user-agent'] ?? '(none)';
+
+  authDebug('GOOGLE CALLBACK HIT', {
+    hasCode: typeof req.query.code === 'string',
+    hasState: typeof req.query.state === 'string',
+    hasGoogleError: typeof req.query.error === 'string',
+  });
   let returnTo;
   try {
     returnTo = callbackDestination(req.query.state);
   } catch {
-    console.warn(`[auth] Google OAuth callback rejected invalid or expired state (ua="${ua}")`);
+    console.warn('[auth] Google OAuth callback rejected invalid or expired state.');
+    authDebug('GOOGLE CALLBACK REJECTED', { reason: 'invalid_or_expired_state' });
     return res.redirect(frontendUrl('/my-account', 'auth_expired'));
   }
-  console.log("================================");
-  console.log("GOOGLE CALLBACK RECEIVED");
-  console.log("GOOGLE CALLBACK UA:", ua);
-  console.log("================================");
-
   passport.authenticate('google', { session: false }, (err, user, info) => {
     const accountUrl = frontendUrl(returnTo);
 
     if (err) {
-      console.error(`[auth] Google OAuth callback error (ua="${ua}"):`, err.message || err.code, err.stack);
+      console.error('[auth] Google OAuth callback failed:', err.code || err.message);
       const reason = err.status === 503 ? 'server_unavailable' : 'server_error';
+      authDebug('GOOGLE CALLBACK FAILED', { reason });
       return res.redirect(frontendUrl(returnTo, reason));
     }
 
     if (!user) {
-      console.warn(`[auth] Google OAuth callback: authentication failed (ua="${ua}") —`, info?.message || 'no user returned');
+      console.warn('[auth] Google OAuth callback: authentication failed:', info?.message || 'no user returned');
+      authDebug('GOOGLE AUTHENTICATION FAILED', { reason: info?.message || 'no_user_returned' });
       return res.redirect(frontendUrl(returnTo, 'auth_failed'));
     }
 
     try {
       const token = issueToken(user);
+      authDebug('JWT CREATED', { customerIdPresent: Boolean(user.id) });
       setAuthCookie(req, res, token);
-      console.log(`[auth] Google OAuth success — customerId=${user.id} email=${user.email} ua="${ua}" — redirecting to ${accountUrl}`);
+      console.log('[auth] Google OAuth succeeded; JWT cookie issued.');
+      authDebug('REDIRECTING TO FRONTEND', { destination: accountUrl });
       return res.redirect(accountUrl);
     } catch (tokenErr) {
-      console.error(`[auth] Failed to issue JWT after successful Google auth (ua="${ua}"):`, tokenErr.message, tokenErr.stack);
+      console.error('[auth] Failed to issue JWT after successful Google auth:', tokenErr.name || 'Error');
+      authDebug('JWT OR COOKIE CREATION FAILED');
       return res.redirect(frontendUrl(returnTo, 'server_error'));
     }
   })(req, res);
 });
 
 router.get('/me', requireAuth, (req, res) => {
+  authDebug('AUTH/ME AUTHENTICATED');
   res.json({ customer: sanitizeCustomer(req.customer) });
 });
 
 router.post('/logout', (req, res) => {
+  authDebug('LOGOUT REQUEST', { cookiePresent: Boolean(req.cookies?.khayaal_token) });
   clearAuthCookie(req, res);
   res.json({ ok: true });
 });

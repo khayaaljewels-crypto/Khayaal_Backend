@@ -2,6 +2,12 @@ import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { pool } from '../db/pool.js';
 
+const authDebugEnabled = process.env.AUTH_DEBUG === 'true';
+
+function authDebug(message, details = {}) {
+  if (authDebugEnabled) console.log('[AUTH DEBUG]', message, details);
+}
+
 // Stateless JWT auth — Passport is only used to run the Google OAuth
 // handshake, not for server-side sessions. No serializeUser/deserializeUser
 // or express-session is configured on purpose.
@@ -25,6 +31,10 @@ if (isGoogleAuthConfigured) {
         callbackURL: process.env.GOOGLE_CALLBACK_URL,
       },
       async (_accessToken, _refreshToken, profile, done) => {
+        authDebug('GOOGLE PROFILE RECEIVED', {
+          hasGoogleId: Boolean(profile.id),
+          hasEmail: Boolean(profile.emails?.[0]?.value),
+        });
         const email = profile.emails?.[0]?.value;
         if (!email) return done(new Error('Google account has no email'));
 
@@ -51,9 +61,9 @@ if (isGoogleAuthConfigured) {
             [googleId, email]
           );
         } catch (err) {
-          console.error(`[auth] Google OAuth: customer lookup failed for email=${email}`);
-          console.error('[auth] SQL: SELECT * FROM customers WHERE google_id = $1 OR email = $2', [googleId, email]);
-          console.error('[auth] Error:', err.message || err.code, err.stack);
+          console.error('[auth] Google OAuth customer lookup failed.');
+          console.error('[auth] SQL: SELECT customers by Google ID or email');
+          console.error('[auth] Error:', err.code || err.message);
           err.status = 503;
           err.message = `Database unavailable during Google login (customer lookup): ${err.message || err.code || 'connection failed'}`;
           return done(err);
@@ -69,6 +79,7 @@ if (isGoogleAuthConfigured) {
             return done(conflict);
           }
           if (existing.rows.length > 0) {
+            authDebug('CUSTOMER FOUND', { count: existing.rows.length });
             const updated = await pool.query(
               `UPDATE customers
                SET full_name = $1, profile_image = $2, last_login = now(), updated_at = now()
@@ -78,6 +89,7 @@ if (isGoogleAuthConfigured) {
             );
             customer = updated.rows[0];
           } else {
+            authDebug('CUSTOMER NOT FOUND; CREATING');
             const inserted = await pool.query(
               `INSERT INTO customers (google_id, email, full_name, profile_image, last_login)
                VALUES ($1, $2, $3, $4, now())
@@ -88,17 +100,19 @@ if (isGoogleAuthConfigured) {
           }
         } catch (err) {
           const stage = existing.rows.length > 0 ? 'UPDATE customers' : 'INSERT INTO customers';
-          console.error(`[auth] Google OAuth: ${stage} failed for email=${email}`);
-          console.error('[auth] Error:', err.message || err.code, err.stack);
+          console.error(`[auth] Google OAuth: ${stage} failed.`);
+          console.error('[auth] Error:', err.code || err.message);
           err.status = err.status || (err.code?.startsWith?.('E') ? 503 : 500);
           err.message = `Database error during Google login (${stage}): ${err.message || err.code || 'unknown error'}`;
           return done(err);
         }
 
         if (customer.status === 'disabled') {
+          authDebug('CUSTOMER AUTHENTICATION DENIED', { reason: 'disabled_account' });
           return done(null, false, { message: 'This account has been disabled.' });
         }
 
+        authDebug('CUSTOMER READY FOR TOKEN ISSUANCE');
         return done(null, customer);
       }
     )

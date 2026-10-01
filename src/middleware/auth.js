@@ -64,7 +64,8 @@ export function clearAuthCookie(req, res) {
 // the request either way. Use requireAuth on routes that must be protected.
 export async function attachCustomer(req, _res, next) {
   const token = req.cookies?.[COOKIE_NAME];
-  authDebug(req, 'authentication middleware entered');
+  authDebug(req, 'AUTH/ME REQUEST', { cookiePresent: Boolean(token) });
+  req.authFailureReason = token ? 'unverified_token' : 'cookie_missing';
 
   if (!token) return next();
 
@@ -74,6 +75,7 @@ export async function attachCustomer(req, _res, next) {
     const result = await pool.query('SELECT * FROM customers WHERE id = $1', [payload.customerId]);
     if (result.rows[0] && result.rows[0].status !== 'disabled') {
       req.customer = result.rows[0];
+      req.authFailureReason = null;
       authDebug(req, 'JWT verification successful');
     } else {
       authDebug(req, 'JWT verified but customer is unavailable', {
@@ -85,8 +87,14 @@ export async function attachCustomer(req, _res, next) {
     // Invalid/expired JWT or a database failure both leave the request
     // unauthenticated. Do not expose operational details to the client.
     if (authDebugEnabled) {
-      console.error('[AUTH DEBUG] JWT verification failed:', err.message || err.code);
+      console.error('[AUTH DEBUG] JWT verification failed:', {
+        errorType: err.name || 'Error',
+        databaseCode: err.code || null,
+      });
     }
+    req.authFailureReason = err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError'
+      ? 'jwt_invalid_or_expired'
+      : 'customer_lookup_failed';
   }
 
   next();
@@ -95,6 +103,9 @@ export async function attachCustomer(req, _res, next) {
 // A customer can only access their own data; protected routes use
 // req.customer.id, never a customer id supplied by the client.
 export function requireAuth(req, res, next) {
-  if (!req.customer) return res.status(401).json({ error: 'Not signed in.' });
+  if (!req.customer) {
+    authDebug(req, 'AUTH/ME NOT AUTHENTICATED', { reason: req.authFailureReason || 'customer_not_found' });
+    return res.status(401).json({ error: 'Not signed in.' });
+  }
   next();
 }
