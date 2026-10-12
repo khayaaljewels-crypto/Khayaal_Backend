@@ -205,6 +205,10 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Products may be created or edited without a category. This also upgrades
+-- existing databases whose products.category_id was previously NOT NULL.
+ALTER TABLE products ALTER COLUMN category_id DROP NOT NULL;
+
 -- CREATE TABLE IF NOT EXISTS does not add columns to an existing Neon
 -- products table. Keep this additive migration alongside the canonical table
 -- definition so previously deployed catalogues gain per-product descriptions

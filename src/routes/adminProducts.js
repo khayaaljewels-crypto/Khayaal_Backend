@@ -141,6 +141,9 @@ const COLUMN_CASTS = { tags: '::text[]', specs: '::jsonb', variants: '::jsonb', 
 // aren't affected — `pg` already JSON.stringify()s those by default — only
 // arrays bound for a jsonb column need to be stringified explicitly here.
 function serializeForColumn(column, value) {
+  // HTML selects commonly submit an empty string for "no category". Store
+  // that as SQL NULL so create and edit both preserve an unassigned category.
+  if (column === 'category_id' && value === '') return null;
   if (column === 'occasion') return normalizeAllOccasions(value);
   if (COLUMN_CASTS[column] === '::jsonb' && value !== null) {
     return JSON.stringify(value);
